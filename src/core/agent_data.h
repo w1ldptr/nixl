@@ -41,9 +41,7 @@ class nixlAgentData {
     private:
         std::string     name;
         nixlAgentConfig config;
-#ifndef DISABLE_MT
         nixlLock        lock;
-#endif
 
         // some handle that can be used to instantiate an object from the lib
         std::map<std::string, void*> backendLibs;

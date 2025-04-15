@@ -19,6 +19,18 @@
 
 #ifdef DISABLE_MT
 
+class nixlLock {
+    public:
+        nixlLock(const nixl_sync_t sync_mode)
+        {}
+
+        void lock()
+        {}
+
+        void unlock()
+        {}
+};
+
 #define NIXL_LOCK_GUARD(lock)
 
 #else

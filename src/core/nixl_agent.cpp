@@ -60,10 +60,7 @@ std::string nixlEnumStrings::statusStr (const nixl_status_t &status) {
 /*** nixlAgentData constructor/destructor, as part of nixlAgent's ***/
 nixlAgentData::nixlAgentData(const std::string &name,
                              const nixlAgentConfig &cfg) :
-                                   name(name), config(cfg)
-#ifndef DISABLE_MT
-                                   , lock(cfg.syncMode)
-#endif
+                                   name(name), config(cfg), lock(cfg.syncMode)
 {
         memorySection = new nixlLocalSection();
 }
