@@ -66,19 +66,11 @@ typedef enum {
  * @enum nixl_sync_t
  * @brief An enumeration of supported synchronization modes for NIXL
  */
-typedef enum {
+enum class nixl_sync_t {
     NIXL_SYNC_NONE,
-#ifndef DISABLE_MT
     NIXL_SYNC_STRICT,
-#endif
-} nixl_sync_t;
-
-#ifdef DISABLE_MT
-#define NIXL_SYNC_DEFAULT NIXL_SYNC_NONE
-#else
-#define NIXL_SYNC_DEFAULT NIXL_SYNC_STRICT
-#endif
-
+    NIXL_SYNC_DEFAULT = NIXL_SYNC_STRICT,
+};
 
 /**
  * @namespace nixlEnumStrings

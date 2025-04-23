@@ -17,27 +17,7 @@
 #ifndef SYNC_H
 #define SYNC_H
 #include "common/util.h"
-
-#ifdef DISABLE_MT
-
-class nixlLock {
-    public:
-        nixlLock(const nixl_sync_t sync_mode)
-        {}
-
-        void lock()
-        {}
-
-        void unlock()
-        {}
-};
-
-#define NIXL_LOCK_GUARD(lock)
-
-#else
-
 #include "nixl_params.h"
-
 #include <mutex>
 
 class nixlLock {
@@ -50,20 +30,18 @@ class nixlLock {
         {}
 
         void lock() {
-            if (syncMode == NIXL_SYNC_STRICT) {
+            if (syncMode == nixl_sync_t::NIXL_SYNC_STRICT) {
                 m.lock();
             }
         }
 
         void unlock() {
-            if (syncMode == NIXL_SYNC_STRICT) {
+            if (syncMode == nixl_sync_t::NIXL_SYNC_STRICT) {
                 m.unlock();
             }
         }
 };
 
 #define NIXL_LOCK_GUARD(lock) const std::lock_guard<nixlLock> UNIQUE_NAME(lock_guard) (lock)
-
-#endif /* DISABLE_MT */
 
 #endif /* SYNC_H */
