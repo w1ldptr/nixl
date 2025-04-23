@@ -56,7 +56,7 @@ struct nixlStaticPluginInfo {
 
 class nixlPluginManager {
 private:
-    std::map<nixl_backend_t, std::shared_ptr<nixlPluginHandle>> loaded_plugins_;
+    std::map<nixl_backend_t, std::shared_ptr<const nixlPluginHandle>> loaded_plugins_;
     std::vector<std::string> plugin_dirs_;
 
     // Static Plugins
@@ -75,12 +75,12 @@ public:
     nixlPluginManager(const nixlPluginManager&) = delete;
     nixlPluginManager& operator=(const nixlPluginManager&) = delete;
 
-    std::shared_ptr<nixlPluginHandle> loadPluginFromPath(const std::string& plugin_path);
+    std::shared_ptr<const nixlPluginHandle> loadPluginFromPath(const std::string& plugin_path);
 
     void loadPluginsFromList(const std::string& filename);
 
     // Load a specific plugin
-    std::shared_ptr<nixlPluginHandle> loadPlugin(const nixl_backend_t& plugin_name);
+    std::shared_ptr<const nixlPluginHandle> loadPlugin(const nixl_backend_t& plugin_name);
 
     // Search a directory for plugins
     void discoverPluginsFromDir(const std::string& dirpath);
@@ -89,7 +89,7 @@ public:
     void unloadPlugin(const nixl_backend_t& plugin_name);
 
     // Get a plugin handle
-    std::shared_ptr<nixlPluginHandle> getPlugin(const nixl_backend_t& plugin_name);
+    std::shared_ptr<const nixlPluginHandle> getPlugin(const nixl_backend_t& plugin_name);
 
     // Get all loaded plugin names
     std::vector<nixl_backend_t> getLoadedPluginNames();
