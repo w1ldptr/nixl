@@ -37,12 +37,12 @@ public:
     nixlPluginHandle(void* handle, nixlBackendPlugin* plugin);
     ~nixlPluginHandle();
 
-    nixlBackendEngine* createEngine(const nixlBackendInitParams* init_params);
-    void destroyEngine(nixlBackendEngine* engine);
-    const char* getName();
-    const char* getVersion();
-    nixl_b_params_t getBackendOptions();
-    nixl_mem_list_t getBackendMems();
+    nixlBackendEngine* createEngine(const nixlBackendInitParams* init_params) const;
+    void destroyEngine(nixlBackendEngine* engine) const;
+    const char* getName() const;
+    const char* getVersion() const;
+    nixl_b_params_t getBackendOptions() const;
+    nixl_mem_list_t getBackendMems() const;
 };
 
 // Creator Function for static plugins

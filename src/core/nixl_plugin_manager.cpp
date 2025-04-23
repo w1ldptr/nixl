@@ -49,27 +49,27 @@ nixlPluginHandle::~nixlPluginHandle() {
     }
 }
 
-nixlBackendEngine* nixlPluginHandle::createEngine(const nixlBackendInitParams* init_params) {
+nixlBackendEngine* nixlPluginHandle::createEngine(const nixlBackendInitParams* init_params) const {
     if (plugin_ && plugin_->create_engine) {
         return plugin_->create_engine(init_params);
     }
     return nullptr;
 }
 
-void nixlPluginHandle::destroyEngine(nixlBackendEngine* engine) {
+void nixlPluginHandle::destroyEngine(nixlBackendEngine* engine) const {
     if (plugin_ && plugin_->destroy_engine && engine) {
         plugin_->destroy_engine(engine);
     }
 }
 
-const char* nixlPluginHandle::getName() {
+const char* nixlPluginHandle::getName() const {
     if (plugin_ && plugin_->get_plugin_name) {
         return plugin_->get_plugin_name();
     }
     return "unknown";
 }
 
-const char* nixlPluginHandle::getVersion() {
+const char* nixlPluginHandle::getVersion() const {
     if (plugin_ && plugin_->get_plugin_version) {
         return plugin_->get_plugin_version();
     }
@@ -309,7 +309,7 @@ std::shared_ptr<nixlPluginHandle> nixlPluginManager::getPlugin(const nixl_backen
     return nullptr;
 }
 
-nixl_b_params_t nixlPluginHandle::getBackendOptions() {
+nixl_b_params_t nixlPluginHandle::getBackendOptions() const {
     nixl_b_params_t params;
     if (plugin_ && plugin_->get_backend_options) {
         return plugin_->get_backend_options();
@@ -317,7 +317,7 @@ nixl_b_params_t nixlPluginHandle::getBackendOptions() {
     return params; // Return empty params if not implemented
 }
 
-nixl_mem_list_t nixlPluginHandle::getBackendMems() {
+nixl_mem_list_t nixlPluginHandle::getBackendMems() const {
     nixl_mem_list_t mems;
     if (plugin_ && plugin_->get_backend_mems) {
         return plugin_->get_backend_mems();
