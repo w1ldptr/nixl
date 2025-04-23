@@ -16,6 +16,7 @@
  */
 #ifndef SYNC_H
 #define SYNC_H
+#include "common/util.h"
 
 #ifdef DISABLE_MT
 
@@ -61,7 +62,7 @@ class nixlLock {
         }
 };
 
-#define NIXL_LOCK_GUARD(lock) const std::lock_guard<nixlLock> lock_guard##__FILE__##__LINE__ (lock)
+#define NIXL_LOCK_GUARD(lock) const std::lock_guard<nixlLock> UNIQUE_NAME(lock_guard) (lock)
 
 #endif /* DISABLE_MT */
 
