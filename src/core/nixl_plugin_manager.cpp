@@ -27,6 +27,7 @@
 #include <iostream>
 #include <string>
 #include <map>
+#include <mutex>
 
 // pluginHandle implementation
 nixlPluginHandle::nixlPluginHandle(void* handle, nixlBackendPlugin* plugin)
@@ -187,14 +188,10 @@ nixlPluginManager::nixlPluginManager() {
 }
 
 nixlPluginManager& nixlPluginManager::getInstance() {
+    static std::once_flag registered;
     static nixlPluginManager instance;
 
-    // Only register built-in plugins once
-    static bool registered = false;
-    if (!registered) {
-        instance.registerBuiltinPlugins();
-        registered = true;
-    }
+    std::call_once(registered, [&]() { instance.registerBuiltinPlugins(); });
 
     return instance;
 }
