@@ -89,6 +89,8 @@ public:
   int progress() override;
 
 private:
+  // This represents an engine shared state that is read in every const method and modified in non-cost ones
+  // The purpose is to trigger thread sanitizer in multi-threading tests
   int sharedState;
 };
 } // namespace mocks
