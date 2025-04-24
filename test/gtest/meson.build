@@ -52,7 +52,7 @@ if get_option('b_sanitize').split(',').contains('thread')
     test_env.set('NIXL_PLUGIN_DIR', mocks_dep.get_variable('path'))
 
     mt_test_exe = executable('mt_test',
-        sources : ['main.cpp', 'mt.cpp'],
+        sources : ['main.cpp', 'multi_threading.cpp'],
         include_directories: [nixl_inc_dirs, utils_inc_dirs],
         cpp_args : cpp_flags,
         dependencies : [nixl_dep, nixl_infra, cuda_dep, gtest_dep],

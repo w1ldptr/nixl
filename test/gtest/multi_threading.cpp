@@ -20,9 +20,9 @@
 #include <thread>
 
 namespace gtest {
-namespace mt {
+namespace multi_threading {
 
-class Mt : public testing::Test {
+class MultiThreadingTestFixture : public testing::Test {
 protected:
     // Helper method to create an agent with default config
     static nixlAgent createAgent() {
@@ -84,7 +84,7 @@ protected:
     }
 };
 
-TEST_F(Mt, ConcurrentTransfersWithPerThreadAgent) {
+TEST_F(MultiThreadingTestFixture, ConcurrentTransfersWithPerThreadAgent) {
     // Function to execute transfer sequence with per-thread agent and memory registration
     auto transfer_sequence = []() {
         nixlAgent agent = createAgent();
@@ -104,7 +104,7 @@ TEST_F(Mt, ConcurrentTransfersWithPerThreadAgent) {
     t2.join();
 }
 
-TEST_F(Mt, ConcurrentTransfersWithPerThreadMemory) {
+TEST_F(MultiThreadingTestFixture, ConcurrentTransfersWithPerThreadMemory) {
     nixlAgent agent = createAgent();
     nixlBackendH* backend = createMockDramBackend(agent);
     nixl_opt_args_t extra_params = createExtraParams(backend);
@@ -124,7 +124,7 @@ TEST_F(Mt, ConcurrentTransfersWithPerThreadMemory) {
     t2.join();
 }
 
-TEST_F(Mt, ConcurrentTransfers) {
+TEST_F(MultiThreadingTestFixture, ConcurrentTransfers) {
     nixlAgent agent = createAgent();
     nixlBackendH* backend = createMockDramBackend(agent);
     nixl_opt_args_t extra_params = createExtraParams(backend);
@@ -145,7 +145,7 @@ TEST_F(Mt, ConcurrentTransfers) {
     t2.join();
 }
 
-TEST_F(Mt, RegisterMemWithMockDram) {
+TEST_F(MultiThreadingTestFixture, RegisterMemWithMockDram) {
     nixlAgent agent = createAgent();
     nixlBackendH* backend = createMockDramBackend(agent);
     nixl_opt_args_t extra_params = createExtraParams(backend);
