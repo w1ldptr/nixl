@@ -55,7 +55,6 @@ protected:
 
     static void performTransfer(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
         nixlXferReqH* xfer_req = nullptr;
-        nixl_xfer_op_t op = NIXL_WRITE;
         nixlDescList<nixlBasicDesc> src_list(DRAM_SEG);
         nixlDescList<nixlBasicDesc> dst_list(DRAM_SEG);
 
@@ -64,7 +63,7 @@ protected:
         src_list.addDesc(basic_desc);
         dst_list.addDesc(basic_desc);
 
-        nixl_status_t status = agent.createXferReq(op, src_list, dst_list, "test_agent", xfer_req, &extra_params);
+        nixl_status_t status = agent.createXferReq(NIXL_WRITE, src_list, dst_list, "test_agent", xfer_req, &extra_params);
         EXPECT_EQ(status, NIXL_SUCCESS);
         EXPECT_NE(xfer_req, nullptr);
 
