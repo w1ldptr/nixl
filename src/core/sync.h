@@ -21,10 +21,6 @@
 #include <mutex>
 
 class nixlLock {
-    private:
-        nixl_sync_t syncMode;
-        std::mutex m;
-
     public:
         nixlLock(const nixl_sync_t sync_mode): syncMode(sync_mode)
         {}
@@ -40,6 +36,10 @@ class nixlLock {
                 m.unlock();
             }
         }
+
+    private:
+        nixl_sync_t syncMode;
+        std::mutex m;
 };
 
 #define NIXL_LOCK_GUARD(lock) const std::lock_guard<nixlLock> UNIQUE_NAME(lock_guard) (lock)
