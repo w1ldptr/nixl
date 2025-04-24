@@ -192,6 +192,8 @@ nixlPluginManager::nixlPluginManager() {
 
 nixlPluginManager& nixlPluginManager::getInstance() {
     static std::once_flag registered;
+    // Meyers singleton initialization is safe in multi-threaded environment.
+    // Consult standard [stmt.dcl] chapter for details.
     static nixlPluginManager instance;
 
     std::call_once(registered, [&]() { instance.registerBuiltinPlugins(); });
