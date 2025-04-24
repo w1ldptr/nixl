@@ -29,7 +29,13 @@ protected:
         return nixlAgent("test_agent", cfg);
     }
 
-    static nixlBackendH* createMockDramBackend(nixlAgent& agent) {
+    static nixl_opt_args_t createExtraParams(nixlBackendH* backend) {
+        nixl_opt_args_t extra_params;
+        extra_params.backends = {backend};
+        return extra_params;
+    }
+
+    static nixlBackendH* verifyMockDramBackendCreation(nixlAgent& agent) {
         nixlBackendH* backend_handle = nullptr;
         nixl_b_params_t params;
         nixl_status_t status = agent.createBackend("MOCK_DRAM", params, backend_handle);
@@ -38,13 +44,7 @@ protected:
         return backend_handle;
     }
 
-    static nixl_opt_args_t createExtraParams(nixlBackendH* backend) {
-        nixl_opt_args_t extra_params;
-        extra_params.backends = {backend};
-        return extra_params;
-    }
-
-    static void registerMemory(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
+    static void verifyMemoryRegistration(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
         nixlBlobDesc blob(0, 1024, 0, "");
         nixlDescList<nixlBlobDesc> desc_list(DRAM_SEG);
         desc_list.addDesc(blob);
@@ -53,7 +53,7 @@ protected:
         EXPECT_EQ(status, NIXL_SUCCESS);
     }
 
-    static void performTransfer(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
+    static void verifyTransfer(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
         nixlXferReqH* xfer_req = nullptr;
         nixlDescList<nixlBasicDesc> src_list(DRAM_SEG);
         nixlDescList<nixlBasicDesc> dst_list(DRAM_SEG);
@@ -81,11 +81,11 @@ protected:
 TEST_F(MultiThreadingTestFixture, ConcurrentTransfersWithPerThreadAgent) {
     auto transfer_sequence = []() {
         nixlAgent agent = createAgent();
-        nixlBackendH* backend = createMockDramBackend(agent);
+        nixlBackendH* backend = verifyMockDramBackendCreation(agent);
         nixl_opt_args_t extra_params = createExtraParams(backend);
 
-        registerMemory(agent, extra_params);
-        performTransfer(agent, extra_params);
+        verifyMemoryRegistration(agent, extra_params);
+        verifyTransfer(agent, extra_params);
     };
 
     std::thread t1(transfer_sequence);
@@ -97,12 +97,12 @@ TEST_F(MultiThreadingTestFixture, ConcurrentTransfersWithPerThreadAgent) {
 
 TEST_F(MultiThreadingTestFixture, ConcurrentTransfersWithPerThreadMemory) {
     nixlAgent agent = createAgent();
-    nixlBackendH* backend = createMockDramBackend(agent);
+    nixlBackendH* backend = verifyMockDramBackendCreation(agent);
     nixl_opt_args_t extra_params = createExtraParams(backend);
 
     auto transfer_sequence = [&agent, &extra_params]() {
-        registerMemory(agent, extra_params);
-        performTransfer(agent, extra_params);
+        verifyMemoryRegistration(agent, extra_params);
+        verifyTransfer(agent, extra_params);
     };
 
     std::thread t1(transfer_sequence);
@@ -114,13 +114,13 @@ TEST_F(MultiThreadingTestFixture, ConcurrentTransfersWithPerThreadMemory) {
 
 TEST_F(MultiThreadingTestFixture, ConcurrentTransfers) {
     nixlAgent agent = createAgent();
-    nixlBackendH* backend = createMockDramBackend(agent);
+    nixlBackendH* backend = verifyMockDramBackendCreation(agent);
     nixl_opt_args_t extra_params = createExtraParams(backend);
 
-    registerMemory(agent, extra_params);
+    verifyMemoryRegistration(agent, extra_params);
 
     auto transfer_sequence = [&agent, &extra_params]() {
-        performTransfer(agent, extra_params);
+        verifyTransfer(agent, extra_params);
     };
 
     std::thread t1(transfer_sequence);
@@ -132,11 +132,11 @@ TEST_F(MultiThreadingTestFixture, ConcurrentTransfers) {
 
 TEST_F(MultiThreadingTestFixture, RegisterMemWithMockDram) {
     nixlAgent agent = createAgent();
-    nixlBackendH* backend = createMockDramBackend(agent);
+    nixlBackendH* backend = verifyMockDramBackendCreation(agent);
     nixl_opt_args_t extra_params = createExtraParams(backend);
 
-    registerMemory(agent, extra_params);
-    performTransfer(agent, extra_params);
+    verifyMemoryRegistration(agent, extra_params);
+    verifyTransfer(agent, extra_params);
 }
 
 } // namespace mt
