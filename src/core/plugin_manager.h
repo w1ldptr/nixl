@@ -29,6 +29,12 @@
 class nixlBackendEngine;
 struct nixlBackendInitParams;
 
+/**
+ * This class represents a NIXL plugin and is used to create plugin instances. nixlPluginHandle
+ * attributes are modified only in the constructor and destructor and remain unchanged during normal
+ * operation, e.g., query operations and plugin instance creation. This allows using it in
+ * multi-threading environments without lock protection.
+ */
 class nixlPluginHandle {
 private:
     void* handle_;         // Handle to the dynamically loaded library
