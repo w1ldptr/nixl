@@ -63,13 +63,13 @@ typedef enum {
 } nixl_status_t;
 
 /**
- * @enum nixl_sync_t
+ * @enum nixl_thread_sync_t
  * @brief An enumeration of supported synchronization modes for NIXL
  */
-enum class nixl_sync_t {
-    NIXL_SYNC_NONE,
-    NIXL_SYNC_STRICT,
-    NIXL_SYNC_DEFAULT = NIXL_SYNC_NONE,
+enum class nixl_thread_sync_t {
+    NIXL_THREAD_SYNC_NONE,
+    NIXL_THREAD_SYNC_STRICT,
+    NIXL_THREAD_SYNC_DEFAULT = NIXL_THREAD_SYNC_NONE,
 };
 
 /**

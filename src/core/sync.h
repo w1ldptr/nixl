@@ -22,23 +22,23 @@
 
 class nixlLock {
     public:
-        nixlLock(const nixl_sync_t sync_mode): syncMode(sync_mode)
+        nixlLock(const nixl_thread_sync_t sync_mode): syncMode(sync_mode)
         {}
 
         void lock() {
-            if (syncMode == nixl_sync_t::NIXL_SYNC_STRICT) {
+            if (syncMode == nixl_thread_sync_t::NIXL_THREAD_SYNC_STRICT) {
                 m.lock();
             }
         }
 
         void unlock() {
-            if (syncMode == nixl_sync_t::NIXL_SYNC_STRICT) {
+            if (syncMode == nixl_thread_sync_t::NIXL_THREAD_SYNC_STRICT) {
                 m.unlock();
             }
         }
 
     private:
-        nixl_sync_t syncMode;
+        nixl_thread_sync_t syncMode;
         std::mutex m;
 };
 
