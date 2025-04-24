@@ -36,6 +36,7 @@ if get_option('buildtype') == 'release'
   add_global_arguments(abseil_flags, language: 'cpp')
 endif
 abseil_proj = subproject('abseil-cpp')
+abseil_dep = abseil_proj.get_variable('absl_synchronization_dep')
 
 cuda_inc_path = get_option('cudapath_inc')
 cuda_lib_path = get_option('cudapath_lib')

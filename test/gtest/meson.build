@@ -40,7 +40,7 @@ test_exe = executable('gtest',
     sources : ['main.cpp', 'plugin_manager.cpp'],
     include_directories: [nixl_inc_dirs, utils_inc_dirs],
     cpp_args : cpp_flags,
-    dependencies : [nixl_dep, cuda_dep, gtest_dep],
+    dependencies : [nixl_dep, cuda_dep, gtest_dep, abseil_dep],
     install : true
 )
 
@@ -55,7 +55,7 @@ if get_option('b_sanitize').split(',').contains('thread')
         sources : ['main.cpp', 'multi_threading.cpp'],
         include_directories: [nixl_inc_dirs, utils_inc_dirs],
         cpp_args : cpp_flags,
-        dependencies : [nixl_dep, nixl_infra, cuda_dep, gtest_dep],
+        dependencies : [nixl_dep, nixl_infra, cuda_dep, gtest_dep, abseil_dep],
         link_with: [nixl_build_lib],
     )
 

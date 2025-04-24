@@ -44,6 +44,6 @@ nixl_ucx_app  = executable('nixl_test', 'nixl_test.cpp',
 
 plugin_test = executable('test_plugin',
                         'test_plugin.cpp',
-                        dependencies: [nixl_dep, cuda_dep],
+                        dependencies: [nixl_dep, cuda_dep, abseil_dep],
                         include_directories: [nixl_inc_dirs, utils_inc_dirs],
                         install: true)

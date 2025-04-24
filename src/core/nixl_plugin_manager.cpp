@@ -28,7 +28,7 @@
 #include <string>
 #include <map>
 
-using lock_guard = const std::lock_guard<std::mutex>;
+using lock_guard = const absl::MutexLock;
 
 // pluginHandle implementation
 nixlPluginHandle::nixlPluginHandle(void* handle, nixlBackendPlugin* plugin)
@@ -160,7 +160,7 @@ std::shared_ptr<const nixlPluginHandle> nixlPluginManager::loadPluginFromPath(co
 void nixlPluginManager::loadPluginsFromList(const std::string& filename) {
     auto plugins = loadPluginList(filename);
 
-    lock_guard lg(lock);
+    lock_guard lg(&lock);
 
     for (const auto& pair : plugins) {
         const std::string& name = pair.first;
@@ -214,7 +214,7 @@ void nixlPluginManager::addPluginDirectory(const std::string& directory) {
     }
 
     {
-        lock_guard lg(lock);
+        lock_guard lg(&lock);
 
         // Check if directory is already in the list
         for (const auto& dir : plugin_dirs_) {
@@ -232,7 +232,7 @@ void nixlPluginManager::addPluginDirectory(const std::string& directory) {
 }
 
 std::shared_ptr<const nixlPluginHandle> nixlPluginManager::loadPlugin(const std::string& plugin_name) {
-    lock_guard lg(lock);
+    lock_guard lg(&lock);
 
     // Check if the plugin is already loaded
     // Static Plugins are preloaded so return handle
@@ -308,13 +308,13 @@ void nixlPluginManager::unloadPlugin(const nixl_backend_t& plugin_name) {
         }
     }
 
-    lock_guard lg(lock);
+    lock_guard lg(&lock);
 
     loaded_plugins_.erase(plugin_name);
 }
 
 std::shared_ptr<const nixlPluginHandle> nixlPluginManager::getPlugin(const nixl_backend_t& plugin_name) {
-    lock_guard lg(lock);
+    lock_guard lg(&lock);
 
     auto it = loaded_plugins_.find(plugin_name);
     if (it != loaded_plugins_.end()) {
@@ -340,7 +340,7 @@ nixl_mem_list_t nixlPluginHandle::getBackendMems() const {
 }
 
 std::vector<nixl_backend_t> nixlPluginManager::getLoadedPluginNames() {
-    lock_guard lg(lock);
+    lock_guard lg(&lock);
 
     std::vector<nixl_backend_t> names;
     for (const auto& pair : loaded_plugins_) {
@@ -350,7 +350,7 @@ std::vector<nixl_backend_t> nixlPluginManager::getLoadedPluginNames() {
 }
 
 void nixlPluginManager::registerStaticPlugin(const char* name, nixlStaticPluginCreatorFunc creator) {
-    lock_guard lg(lock);
+    lock_guard lg(&lock);
 
     nixlStaticPluginInfo info;
     info.name = name;
