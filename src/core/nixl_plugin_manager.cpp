@@ -188,15 +188,14 @@ nixlPluginManager::nixlPluginManager() {
         plugin_dirs_.insert(plugin_dirs_.begin(), plugin_dir);  // Insert at the beginning for priority
         discoverPluginsFromDir(plugin_dir);
     }
+
+    registerBuiltinPlugins();
 }
 
 nixlPluginManager& nixlPluginManager::getInstance() {
-    static std::once_flag registered;
     // Meyers singleton initialization is safe in multi-threaded environment.
     // Consult standard [stmt.dcl] chapter for details.
     static nixlPluginManager instance;
-
-    std::call_once(registered, [&]() { instance.registerBuiltinPlugins(); });
 
     return instance;
 }
@@ -350,8 +349,6 @@ std::vector<nixl_backend_t> nixlPluginManager::getLoadedPluginNames() {
 }
 
 void nixlPluginManager::registerStaticPlugin(const char* name, nixlStaticPluginCreatorFunc creator) {
-    lock_guard lg(&lock);
-
     nixlStaticPluginInfo info;
     info.name = name;
     info.createFunc = creator;
