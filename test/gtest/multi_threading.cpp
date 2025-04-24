@@ -24,6 +24,10 @@ namespace multi_threading {
 
 class MultiThreadingTestFixture : public testing::Test {
 protected:
+    uintptr_t addr = 0;
+    size_t len = 1024;
+    uint64_t dev_id = 0;
+
     nixlAgent createAgent() {
         nixlAgentConfig cfg(false, false, 0, 0, 100000, nixl_thread_sync_t::NIXL_THREAD_SYNC_STRICT);
         return nixlAgent("test_agent", cfg);
@@ -45,7 +49,7 @@ protected:
     }
 
     void verifyMemoryRegistration(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
-        nixlBlobDesc blob(0, 1024, 0, "");
+        nixlBlobDesc blob(addr, len, dev_id, "");
         nixlDescList<nixlBlobDesc> desc_list(DRAM_SEG);
         desc_list.addDesc(blob);
 
@@ -58,8 +62,7 @@ protected:
         nixlDescList<nixlBasicDesc> src_list(DRAM_SEG);
         nixlDescList<nixlBasicDesc> dst_list(DRAM_SEG);
 
-        // params don't matter here
-        nixlBasicDesc basic_desc(0, 1024, 0);
+        nixlBasicDesc basic_desc(addr, len, dev_id);
         src_list.addDesc(basic_desc);
         dst_list.addDesc(basic_desc);
 
