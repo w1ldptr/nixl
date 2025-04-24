@@ -69,7 +69,7 @@ typedef enum {
 enum class nixl_sync_t {
     NIXL_SYNC_NONE,
     NIXL_SYNC_STRICT,
-    NIXL_SYNC_DEFAULT = NIXL_SYNC_STRICT,
+    NIXL_SYNC_DEFAULT = NIXL_SYNC_NONE,
 };
 
 /**

@@ -25,7 +25,7 @@ namespace multi_threading {
 class MultiThreadingTestFixture : public testing::Test {
 protected:
     static nixlAgent createAgent() {
-        nixlAgentConfig cfg(false);
+        nixlAgentConfig cfg(false, false, 0, 0, 100000, nixl_sync_t::NIXL_SYNC_STRICT);
         return nixlAgent("test_agent", cfg);
     }
 
