@@ -24,13 +24,11 @@ namespace multi_threading {
 
 class MultiThreadingTestFixture : public testing::Test {
 protected:
-    // Helper method to create an agent with default config
     static nixlAgent createAgent() {
         nixlAgentConfig cfg(false);
         return nixlAgent("test_agent", cfg);
     }
 
-    // Helper method to create a mock DRAM backend
     static nixlBackendH* createMockDramBackend(nixlAgent& agent) {
         nixlBackendH* backend_handle = nullptr;
         nixl_b_params_t params;
@@ -40,14 +38,12 @@ protected:
         return backend_handle;
     }
 
-    // Helper method to set up extra params with a backend
     static nixl_opt_args_t createExtraParams(nixlBackendH* backend) {
         nixl_opt_args_t extra_params;
         extra_params.backends = {backend};
         return extra_params;
     }
 
-    // Helper method to create and register memory
     static void registerMemory(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
         nixlBlobDesc blob(0, 1024, 0, "");
         nixlDescList<nixlBlobDesc> desc_list(DRAM_SEG);
@@ -57,14 +53,13 @@ protected:
         EXPECT_EQ(status, NIXL_SUCCESS);
     }
 
-    // Helper method to perform a transfer operation
     static void performTransfer(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
         nixlXferReqH* xfer_req = nullptr;
         nixl_xfer_op_t op = NIXL_WRITE;
         nixlDescList<nixlBasicDesc> src_list(DRAM_SEG);
         nixlDescList<nixlBasicDesc> dst_list(DRAM_SEG);
 
-        // Create basic descriptor for transfer
+        // params don't matter here
         nixlBasicDesc basic_desc(0, 1024, 0);
         src_list.addDesc(basic_desc);
         dst_list.addDesc(basic_desc);
@@ -85,7 +80,6 @@ protected:
 };
 
 TEST_F(MultiThreadingTestFixture, ConcurrentTransfersWithPerThreadAgent) {
-    // Function to execute transfer sequence with per-thread agent and memory registration
     auto transfer_sequence = []() {
         nixlAgent agent = createAgent();
         nixlBackendH* backend = createMockDramBackend(agent);
@@ -95,11 +89,9 @@ TEST_F(MultiThreadingTestFixture, ConcurrentTransfersWithPerThreadAgent) {
         performTransfer(agent, extra_params);
     };
 
-    // Create and run two threads executing the transfer sequence
     std::thread t1(transfer_sequence);
     std::thread t2(transfer_sequence);
 
-    // Wait for both threads to complete
     t1.join();
     t2.join();
 }
@@ -109,17 +101,14 @@ TEST_F(MultiThreadingTestFixture, ConcurrentTransfersWithPerThreadMemory) {
     nixlBackendH* backend = createMockDramBackend(agent);
     nixl_opt_args_t extra_params = createExtraParams(backend);
 
-    // Function to execute transfer sequence with per-thread memory registration
     auto transfer_sequence = [&agent, &extra_params]() {
         registerMemory(agent, extra_params);
         performTransfer(agent, extra_params);
     };
 
-    // Create and run two threads executing the transfer sequence
     std::thread t1(transfer_sequence);
     std::thread t2(transfer_sequence);
 
-    // Wait for both threads to complete
     t1.join();
     t2.join();
 }
@@ -131,16 +120,13 @@ TEST_F(MultiThreadingTestFixture, ConcurrentTransfers) {
 
     registerMemory(agent, extra_params);
 
-    // Function to execute transfer sequence
     auto transfer_sequence = [&agent, &extra_params]() {
         performTransfer(agent, extra_params);
     };
 
-    // Create and run two threads executing the transfer sequence
     std::thread t1(transfer_sequence);
     std::thread t2(transfer_sequence);
 
-    // Wait for both threads to complete
     t1.join();
     t2.join();
 }
