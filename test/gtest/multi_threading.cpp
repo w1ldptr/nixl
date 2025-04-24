@@ -24,18 +24,18 @@ namespace multi_threading {
 
 class MultiThreadingTestFixture : public testing::Test {
 protected:
-    static nixlAgent createAgent() {
+    nixlAgent createAgent() {
         nixlAgentConfig cfg(false, false, 0, 0, 100000, nixl_sync_t::NIXL_SYNC_STRICT);
         return nixlAgent("test_agent", cfg);
     }
 
-    static nixl_opt_args_t createExtraParams(nixlBackendH* backend) {
+    nixl_opt_args_t createExtraParams(nixlBackendH* backend) {
         nixl_opt_args_t extra_params;
         extra_params.backends = {backend};
         return extra_params;
     }
 
-    static nixlBackendH* verifyMockDramBackendCreation(nixlAgent& agent) {
+    nixlBackendH* verifyMockDramBackendCreation(nixlAgent& agent) {
         nixlBackendH* backend_handle = nullptr;
         nixl_b_params_t params;
         nixl_status_t status = agent.createBackend("MOCK_DRAM", params, backend_handle);
@@ -44,7 +44,7 @@ protected:
         return backend_handle;
     }
 
-    static void verifyMemoryRegistration(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
+    void verifyMemoryRegistration(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
         nixlBlobDesc blob(0, 1024, 0, "");
         nixlDescList<nixlBlobDesc> desc_list(DRAM_SEG);
         desc_list.addDesc(blob);
@@ -53,7 +53,7 @@ protected:
         EXPECT_EQ(status, NIXL_SUCCESS);
     }
 
-    static void verifyTransfer(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
+    void verifyTransfer(nixlAgent& agent, const nixl_opt_args_t& extra_params) {
         nixlXferReqH* xfer_req = nullptr;
         nixlDescList<nixlBasicDesc> src_list(DRAM_SEG);
         nixlDescList<nixlBasicDesc> dst_list(DRAM_SEG);
@@ -79,7 +79,7 @@ protected:
 };
 
 TEST_F(MultiThreadingTestFixture, ConcurrentTransfersWithPerThreadAgent) {
-    auto transfer_sequence = []() {
+    auto transfer_sequence = [&]() {
         nixlAgent agent = createAgent();
         nixlBackendH* backend = verifyMockDramBackendCreation(agent);
         nixl_opt_args_t extra_params = createExtraParams(backend);
@@ -100,7 +100,7 @@ TEST_F(MultiThreadingTestFixture, ConcurrentTransfersWithPerThreadMemory) {
     nixlBackendH* backend = verifyMockDramBackendCreation(agent);
     nixl_opt_args_t extra_params = createExtraParams(backend);
 
-    auto transfer_sequence = [&agent, &extra_params]() {
+    auto transfer_sequence = [&]() {
         verifyMemoryRegistration(agent, extra_params);
         verifyTransfer(agent, extra_params);
     };
@@ -119,7 +119,7 @@ TEST_F(MultiThreadingTestFixture, ConcurrentTransfers) {
 
     verifyMemoryRegistration(agent, extra_params);
 
-    auto transfer_sequence = [&agent, &extra_params]() {
+    auto transfer_sequence = [&]() {
         verifyTransfer(agent, extra_params);
     };
 
