@@ -249,7 +249,7 @@ class nixlAgent {
          * @return nixl_status_t NIXL_IN_PROG or error code if call was not successful
          */
         nixl_status_t
-        getXferStatus (nixlXferReqH* req_hndl);
+        getXferStatus (nixlXferReqH* req_hndl) const;
 
         /**
          * @brief  Query the backend associated with `req_hndl`. E.g., if for genNotif
@@ -271,7 +271,7 @@ class nixlAgent {
          * @return nixl_status_t Error code if call was not successful
          */
         nixl_status_t
-        releaseXferReq (nixlXferReqH* req_hndl);
+        releaseXferReq (nixlXferReqH* req_hndl) const;
 
         /**
          * @brief  Release the prepared descriptor list handle `dlist_hndl`

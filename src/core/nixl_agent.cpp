@@ -819,7 +819,7 @@ nixlAgent::postXferReq(nixlXferReqH *req_hndl,
 }
 
 nixl_status_t
-nixlAgent::getXferStatus (nixlXferReqH *req_hndl) {
+nixlAgent::getXferStatus (nixlXferReqH *req_hndl) const {
 
     NIXL_LOCK_GUARD(data->lock);
     // If the status is done, no need to recheck.
@@ -846,7 +846,7 @@ nixlAgent::queryXferBackend(const nixlXferReqH* req_hndl,
 }
 
 nixl_status_t
-nixlAgent::releaseXferReq(nixlXferReqH *req_hndl) {
+nixlAgent::releaseXferReq(nixlXferReqH *req_hndl) const {
 
     NIXL_LOCK_GUARD(data->lock);
     //attempt to cancel request
