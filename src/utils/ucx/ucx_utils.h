@@ -22,6 +22,7 @@ extern "C"
 #include <ucp/api/ucp.h>
 }
 
+#include <memory>
 #include "nixl.h"
 
 enum nixl_ucx_mt_t {
@@ -80,11 +81,11 @@ public:
 class nixlUcxWorker {
 private:
     /* Local UCX stuff */
-    nixlUcxContext *ctx;
+    std::shared_ptr<nixlUcxContext> ctx;
     ucp_worker_h worker;
 
 public:
-    nixlUcxWorker(nixlUcxContext *ctx);
+    nixlUcxWorker(std::shared_ptr<nixlUcxContext> &_ctx);
     ~nixlUcxWorker();
 
     /* Connection */
@@ -92,15 +93,6 @@ public:
     int connect(void* addr, size_t size, nixlUcxEp &ep);
     int disconnect(nixlUcxEp &ep);
     int disconnect_nb(nixlUcxEp &ep);
-
-    /* Memory management */
-    int memReg(void *addr, size_t size, nixlUcxMem &mem);
-    size_t packRkey(nixlUcxMem &mem, uint64_t &addr, size_t &size);
-    void memDereg(nixlUcxMem &mem);
-
-    /* Rkey */
-    int rkeyImport(nixlUcxEp &ep, void* addr, size_t size, nixlUcxRkey &rkey);
-    void rkeyDestroy(nixlUcxRkey &rkey);
 
     /* Active message handling */
     int regAmCallback(unsigned msg_id, ucp_am_recv_callback_t cb, void* arg);
@@ -126,6 +118,16 @@ public:
 
     void reqRelease(nixlUcxReq req);
     void reqCancel(nixlUcxReq req);
+
+    /* Memory management */
+    static int memReg(std::shared_ptr<nixlUcxContext> &ctx, void *addr, size_t size, nixlUcxMem &mem);
+    static size_t packRkey(std::shared_ptr<nixlUcxContext> &ctx, nixlUcxMem &mem, uint64_t &addr, size_t &size);
+    static void memDereg(std::shared_ptr<nixlUcxContext> &ctx, nixlUcxMem &mem);
+
+    /* Rkey */
+    static int rkeyImport(nixlUcxEp &ep, void* addr, size_t size, nixlUcxRkey &rkey);
+    static void rkeyDestroy(nixlUcxRkey &rkey);
+
 };
 
 #endif

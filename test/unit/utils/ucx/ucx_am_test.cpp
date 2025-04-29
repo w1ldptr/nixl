@@ -87,14 +87,14 @@ int main()
     vector<string> devs;
     devs.push_back("mlx5_0");
 
-    nixlUcxContext c[2] = {
-        nixlUcxContext(devs, 0, NULL, NULL, NIXL_UCX_MT_SINGLE),
-        nixlUcxContext(devs, 0, NULL, NULL, NIXL_UCX_MT_SINGLE)
+    std::shared_ptr<nixlUcxContext> c[2] = {
+        std::make_shared<nixlUcxContext>(devs, 0, nullptr, nullptr, NIXL_UCX_MT_SINGLE),
+        std::make_shared<nixlUcxContext>(devs, 0, nullptr, nullptr, NIXL_UCX_MT_SINGLE)
     };
 
     nixlUcxWorker w[2] = {
-        nixlUcxWorker(&c[0]),
-        nixlUcxWorker(&c[1])
+        nixlUcxWorker(c[0]),
+        nixlUcxWorker(c[1])
     };
     nixlUcxEp ep[2];
     nixlUcxReq req;
