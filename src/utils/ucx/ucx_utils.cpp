@@ -60,9 +60,9 @@ nixlUcxContext::nixlUcxContext(std::vector<std::string> devs,
     ucp_params.features = UCP_FEATURE_RMA | UCP_FEATURE_AMO32 | UCP_FEATURE_AMO64 | UCP_FEATURE_AM;
     switch(mt_type) {
     case NIXL_UCX_MT_SINGLE:
-    case NIXL_UCX_MT_WORKER:
         ucp_params.mt_workers_shared = 0;
         break;
+    case NIXL_UCX_MT_WORKER:
     case NIXL_UCX_MT_CTX:
         ucp_params.mt_workers_shared = 1;
         break;
@@ -116,12 +116,10 @@ nixlUcxContext::~nixlUcxContext()
 }
 
 
-nixlUcxWorker::nixlUcxWorker(nixlUcxContext *_ctx)
+nixlUcxWorker::nixlUcxWorker(std::shared_ptr<nixlUcxContext> &_ctx): ctx(_ctx)
 {
     ucp_worker_params_t worker_params;
     ucs_status_t status = UCS_OK;
-
-    ctx = _ctx;
 
     memset(&worker_params, 0, sizeof(worker_params));
     worker_params.field_mask = UCP_WORKER_PARAM_FIELD_THREAD_MODE;
@@ -267,7 +265,7 @@ int nixlUcxWorker::disconnect_nb(nixlUcxEp &ep)
  * =========================================== */
 
 
-int nixlUcxWorker::memReg(void *addr, size_t size, nixlUcxMem &mem)
+int nixlUcxWorker::memReg(std::shared_ptr<nixlUcxContext> &ctx, void *addr, size_t size, nixlUcxMem &mem)
 {
     ucs_status_t status;
 
@@ -293,7 +291,7 @@ int nixlUcxWorker::memReg(void *addr, size_t size, nixlUcxMem &mem)
 }
 
 
-size_t nixlUcxWorker::packRkey(nixlUcxMem &mem, uint64_t &addr, size_t &size)
+size_t nixlUcxWorker::packRkey(std::shared_ptr<nixlUcxContext> &ctx, nixlUcxMem &mem, uint64_t &addr, size_t &size)
 {
     ucs_status_t status;
     void *rkey_buf;
@@ -317,7 +315,7 @@ size_t nixlUcxWorker::packRkey(nixlUcxMem &mem, uint64_t &addr, size_t &size)
     return 0;
 }
 
-void nixlUcxWorker::memDereg(nixlUcxMem &mem)
+void nixlUcxWorker::memDereg(std::shared_ptr<nixlUcxContext> &ctx, nixlUcxMem &mem)
 {
     ucp_mem_unmap(ctx->ctx, mem.memh);
 }

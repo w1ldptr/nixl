@@ -24,6 +24,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <memory>
 
 #include "nixl.h"
 #include "backend/backend_engine.h"
@@ -43,10 +44,14 @@ struct nixl_ucx_am_hdr {
 class nixlUcxConnection : public nixlBackendConnMD {
     private:
         std::string remoteAgent;
-        nixlUcxEp ep;
+        std::vector<nixlUcxEp> eps;
         volatile bool connected;
 
     public:
+        nixlUcxEp &getEp(size_t ep_id) {
+            return eps[ep_id];
+        }
+
         // Extra information required for UCX connections
 
     friend class nixlUcxEngine;
@@ -74,15 +79,21 @@ class nixlUcxPrivateMetadata : public nixlBackendMD {
 
 // A public metadata has to implement put, and only has the remote metadata
 class nixlUcxPublicMetadata : public nixlBackendMD {
-
+    private:
+        std::vector<nixlUcxRkey> rkeys;
     public:
-        nixlUcxRkey rkey;
         nixlUcxConnection conn;
 
         nixlUcxPublicMetadata() : nixlBackendMD(false) {}
 
         ~nixlUcxPublicMetadata(){
         }
+
+        nixlUcxRkey &getRkey(size_t id) {
+            return rkeys[id];
+        }
+
+    friend class nixlUcxEngine;
 };
 
 // Forward declaration of CUDA context
@@ -96,8 +107,8 @@ class nixlUcxEngine : public nixlBackendEngine {
     private:
 
         /* UCX data */
-        nixlUcxContext* uc;
-        nixlUcxWorker* uw;
+        std::shared_ptr<nixlUcxContext> uc;
+        std::vector<std::unique_ptr<nixlUcxWorker>> uws;
         void* workerAddr;
         size_t workerSize;
 
@@ -156,6 +167,10 @@ class nixlUcxEngine : public nixlBackendEngine {
         nixl_status_t internalMDHelper (const nixl_blob_t &blob,
                                         const std::string &agent,
                                         nixlBackendMD* &output);
+        int memReg(void *addr, size_t size, nixlUcxMem &mem);
+        size_t packRkey(nixlUcxMem &mem, uint64_t &addr, size_t &size);
+        void memDereg(nixlUcxMem &mem);
+
 
         // Notifications
         static ucs_status_t notifAmCb(void *arg, const void *header,
@@ -163,7 +178,9 @@ class nixlUcxEngine : public nixlBackendEngine {
                                       size_t length,
                                       const ucp_am_recv_param_t *param);
         nixl_status_t notifSendPriv(const std::string &remote_agent,
-                                    const std::string &msg, nixlUcxReq &req);
+                                    const std::string &msg,
+                                    nixlUcxReq &req,
+                                    size_t worker_id);
         void notifProgress();
         void notifCombineHelper(notif_list_t &src, notif_list_t &tgt);
         void notifProgressCombineHelper(notif_list_t &src, notif_list_t &tgt);
@@ -229,6 +246,9 @@ class nixlUcxEngine : public nixlBackendEngine {
         //public function for UCX worker to mark connections as connected
         nixl_status_t checkConn(const std::string &remote_agent);
         nixl_status_t endConn(const std::string &remote_agent);
+
+        const std::unique_ptr<nixlUcxWorker> &getWorker(size_t worker_id) const;
+        size_t getWorkerId() const;
 };
 
 #endif
