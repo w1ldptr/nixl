@@ -85,14 +85,14 @@ int main()
     // TODO: pass dev name for testing
     // in CI it would be goot to test both SHM and IB
     //devs.push_back("mlx5_0");
-    nixlUcxContext c[2] = {
-        nixlUcxContext(devs, sizeof(requestData), nixlUcxRequestInit, NULL, NIXL_UCX_MT_SINGLE),
-        nixlUcxContext(devs, sizeof(requestData), nixlUcxRequestInit, NULL, NIXL_UCX_MT_SINGLE)
+    std::shared_ptr<nixlUcxContext> c[2] = {
+        std::make_shared<nixlUcxContext>(devs, sizeof(requestData), nixlUcxRequestInit, nullptr, NIXL_UCX_MT_SINGLE),
+        std::make_shared<nixlUcxContext>(devs, sizeof(requestData), nixlUcxRequestInit, nullptr, NIXL_UCX_MT_SINGLE)
     };
 
     nixlUcxWorker w[2] = {
-        nixlUcxWorker(&c[0]),
-        nixlUcxWorker(&c[1])
+        nixlUcxWorker(c[0]),
+        nixlUcxWorker(c[1])
     };
     nixlUcxEp ep[2];
     nixlUcxMem mem[2];
@@ -123,9 +123,9 @@ int main()
         assert(0 == w[i].epAddr(addr, size));
         assert(0 == w[!i].connect((void*) addr, size, ep[!i]));
         free((void*) addr);
-        assert(0 == w[i].memReg(buffer[i], buf_size, mem[i]));
-        assert(0 == w[i].packRkey(mem[i], addr, size));
-        assert(0 == w[!i].rkeyImport(ep[!i], (void*) addr, size, rkey[!i]));
+        assert(0 == c[i]->memReg(buffer[i], buf_size, mem[i]));
+        assert(0 == c[i]->packRkey(mem[i], addr, size));
+        assert(0 == ep[!i].rkeyImport((void*) addr, size, rkey[!i]));
         free((void*) addr);
     }
 
@@ -199,8 +199,8 @@ int main()
 
     /* Test shutdown */
     for(i = 0; i < 2; i++) {
-        w[i].rkeyDestroy(rkey[i]);
-        w[i].memDereg(mem[i]);
+        ep[i].rkeyDestroy(rkey[i]);
+        c[i]->memDereg(mem[i]);
         assert(0 == w[i].disconnect(ep[i]));
     }
 

@@ -24,6 +24,29 @@
 using namespace std;
 
 
+/* ===========================================
+ * RKey management
+ * =========================================== */
+
+int nixlUcxEp::rkeyImport(void* addr, size_t size, nixlUcxRkey &rkey)
+{
+    ucs_status_t status;
+
+    status = ucp_ep_rkey_unpack(eph, addr, &rkey.rkeyh);
+    if (status != UCS_OK)
+    {
+        /* TODO: MSW_NET_ERROR(priv->net, "unable to unpack key!\n"); */
+        return -1;
+    }
+
+    return 0;
+}
+
+void nixlUcxEp::rkeyDestroy(nixlUcxRkey &rkey)
+{
+    ucp_rkey_destroy(rkey.rkeyh);
+}
+
 bool nixlUcxContext::mtLevelIsSupproted(nixl_ucx_mt_t mt_type)
 {
     ucp_lib_attr_t attr;
@@ -60,9 +83,9 @@ nixlUcxContext::nixlUcxContext(std::vector<std::string> devs,
     ucp_params.features = UCP_FEATURE_RMA | UCP_FEATURE_AMO32 | UCP_FEATURE_AMO64 | UCP_FEATURE_AM;
     switch(mt_type) {
     case NIXL_UCX_MT_SINGLE:
-    case NIXL_UCX_MT_WORKER:
         ucp_params.mt_workers_shared = 0;
         break;
+    case NIXL_UCX_MT_WORKER:
     case NIXL_UCX_MT_CTX:
         ucp_params.mt_workers_shared = 1;
         break;
@@ -116,12 +139,10 @@ nixlUcxContext::~nixlUcxContext()
 }
 
 
-nixlUcxWorker::nixlUcxWorker(nixlUcxContext *_ctx)
+nixlUcxWorker::nixlUcxWorker(std::shared_ptr<nixlUcxContext> &_ctx): ctx(_ctx)
 {
     ucp_worker_params_t worker_params;
     ucs_status_t status = UCS_OK;
-
-    ctx = _ctx;
 
     memset(&worker_params, 0, sizeof(worker_params));
     worker_params.field_mask = UCP_WORKER_PARAM_FIELD_THREAD_MODE;
@@ -267,7 +288,7 @@ int nixlUcxWorker::disconnect_nb(nixlUcxEp &ep)
  * =========================================== */
 
 
-int nixlUcxWorker::memReg(void *addr, size_t size, nixlUcxMem &mem)
+int nixlUcxContext::memReg(void *addr, size_t size, nixlUcxMem &mem)
 {
     ucs_status_t status;
 
@@ -283,7 +304,7 @@ int nixlUcxWorker::memReg(void *addr, size_t size, nixlUcxMem &mem)
         .length  = mem.size,
     };
 
-    status = ucp_mem_map(ctx->ctx, &mem_params, &mem.memh);
+    status = ucp_mem_map(ctx, &mem_params, &mem.memh);
     if (status != UCS_OK) {
         /* TODOL: MSW_NET_ERROR(priv->net, "failed to ucp_mem_map (%s)\n", ucs_status_string(status)); */
         return -1;
@@ -293,12 +314,12 @@ int nixlUcxWorker::memReg(void *addr, size_t size, nixlUcxMem &mem)
 }
 
 
-size_t nixlUcxWorker::packRkey(nixlUcxMem &mem, uint64_t &addr, size_t &size)
+size_t nixlUcxContext::packRkey(nixlUcxMem &mem, uint64_t &addr, size_t &size)
 {
     ucs_status_t status;
     void *rkey_buf;
 
-    status = ucp_rkey_pack(ctx->ctx, mem.memh, &rkey_buf, &size);
+    status = ucp_rkey_pack(ctx, mem.memh, &rkey_buf, &size);
     if (status != UCS_OK) {
         /* TODO: MSW_NET_ERROR(priv->net, "failed to ucp_rkey_pack (%s)\n", ucs_status_string(status)); */
         return -1;
@@ -317,32 +338,9 @@ size_t nixlUcxWorker::packRkey(nixlUcxMem &mem, uint64_t &addr, size_t &size)
     return 0;
 }
 
-void nixlUcxWorker::memDereg(nixlUcxMem &mem)
+void nixlUcxContext::memDereg(nixlUcxMem &mem)
 {
-    ucp_mem_unmap(ctx->ctx, mem.memh);
-}
-
-/* ===========================================
- * RKey management
- * =========================================== */
-
-int nixlUcxWorker::rkeyImport(nixlUcxEp &ep, void* addr, size_t size, nixlUcxRkey &rkey)
-{
-    ucs_status_t status;
-
-    status = ucp_ep_rkey_unpack(ep.eph, addr, &rkey.rkeyh);
-    if (status != UCS_OK)
-    {
-        /* TODO: MSW_NET_ERROR(priv->net, "unable to unpack key!\n"); */
-        return -1;
-    }
-
-    return 0;
-}
-
-void nixlUcxWorker::rkeyDestroy(nixlUcxRkey &rkey)
-{
-    ucp_rkey_destroy(rkey.rkeyh);
+    ucp_mem_unmap(ctx, mem.memh);
 }
 
 /* ===========================================
