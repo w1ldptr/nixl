@@ -24,7 +24,7 @@
 
 #endif
 
-
+static constexpr int const noSyncIters = 32;
 
 /****************************************
  * CUDA related code
@@ -336,9 +336,14 @@ public:
 void nixlUcxEngine::progressFunc()
 {
     using namespace nixlTime;
-    pthrActive = 1;
 
     vramApplyCtx();
+
+    {
+        std::unique_lock<std::mutex> lock(pthrActiveLock);
+        pthrActive = true;
+    }
+    pthrActiveCV.notify_one();
 
     while (!pthrStop) {
         int i;
@@ -366,22 +371,17 @@ void nixlUcxEngine::progressFunc()
 
 void nixlUcxEngine::progressThreadStart()
 {
-    pthrStop = pthrActive = 0;
-    noSyncIters = 32;
+    pthrStop = false;
 
     if (!pthrOn) {
         // not enabled
         return;
     }
 
-    // Start the thread
-    // TODO [Relaxed mem] mem barrier to ensure pthr_x updates are complete
-    new (&pthr) std::thread(&nixlUcxEngine::progressFunc, this);
+    pthr = std::thread(&nixlUcxEngine::progressFunc, this);
 
-    // Wait for the thread to be started
-    while(!pthrActive){
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+    std::unique_lock<std::mutex> lock(pthrActiveLock);
+    pthrActiveCV.wait(lock, [&]{ return pthrActive; });
 }
 
 void nixlUcxEngine::progressThreadStop()
@@ -391,7 +391,7 @@ void nixlUcxEngine::progressThreadStop()
         return;
     }
 
-    pthrStop = 1;
+    pthrStop = true;
     pthr.join();
 }
 
