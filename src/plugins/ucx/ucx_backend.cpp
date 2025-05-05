@@ -16,6 +16,7 @@
  */
 #include "ucx_backend.h"
 #include "serdes/serdes.h"
+#include "common/nixl_log.h"
 
 #ifdef HAVE_CUDA
 
@@ -23,6 +24,8 @@
 #include <cufile.h>
 
 #endif
+
+#include <poll.h>
 
 static constexpr int const noSyncIters = 32;
 
@@ -350,27 +353,49 @@ void nixlUcxEngine::progressFunc()
     }
     pthrActiveCV.notify_one();
 
+    std::vector<pollfd> poll_fds;
+    for (auto &uw: uws) {
+        int fd;
+        if (ucp_worker_get_efd(uw->getWorker(), &fd) == UCS_OK)
+            poll_fds.push_back({fd, POLLIN, 0});
+        else
+            NIXL_ERROR << "Couldn't obtain fd for a worker";
+    }
+
     while (!pthrStop) {
-        int i;
-        for(i = 0; i < noSyncIters; i++) {
-            for (auto &uw: uws)
-                uw->progress();
+        bool made_progress = false;
+        for (auto &uw: uws)
+            while (uw->progress())
+                made_progress = true;
+
+        if (made_progress) {
+            notifProgress();
+            continue;
         }
-        notifProgress();
-        // TODO: once NIXL thread infrastructure is available - move it there!!!
 
-        // {
-        //     static uint64_t cnt = 0;
-        //     if ( !(cnt % 1000000)) {
-        //         std::cout << "Progress round" << std::endl;
-        //     }
-        //     cnt++;
-        // }
+        while (true) {
+            bool all_armed = true;
+            for (auto &uw: uws) {
+                ucs_status_t status = ucp_worker_arm(uw->getWorker());
+                if (status != UCS_OK) {
+                    if (status != UCS_ERR_BUSY)
+                        NIXL_ERROR << "Couldn't arm worker, error " << status << std::endl;
+                    all_armed = false;
+                    break;
+                }
+            }
+            if (!all_armed || pthrStop)
+                break;
 
-        /* Wait for predefined number of */
-        us_t start = getUs();
-        while( (start + pthrDelay) > getUs()) {
-            std::this_thread::yield();
+            if (poll(poll_fds.data(), poll_fds.size(), pthrDelay) > 0) {
+                for (size_t i = 0; i < poll_fds.size(); i++) {
+                    if (poll_fds[i].revents & POLLIN) {
+                        while (uws[i]->progress());
+                        poll_fds[i].revents = 0;
+                    }
+                }
+                notifProgress();
+            }
         }
     }
 }
@@ -431,7 +456,8 @@ nixlUcxEngine::nixlUcxEngine (const nixlBackendInitParams* init_params)
         devs = str_split((*custom_params)["device_list"], ", ");
 
     uc = std::make_shared<nixlUcxContext>(devs, sizeof(nixlUcxIntReq),
-                                          _internalRequestInit, _internalRequestFini, NIXL_UCX_MT_WORKER);
+                                          _internalRequestInit, _internalRequestFini, NIXL_UCX_MT_WORKER,
+                                          init_params->enableProgTh);
     for (unsigned int i = 0; i < init_params->numWorkers; i++) {
         uint64_t n_addr;
         auto uw = std::make_unique<nixlUcxWorker>(uc);
