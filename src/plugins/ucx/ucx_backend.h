@@ -118,7 +118,7 @@ class nixlUcxEngine : public nixlBackendEngine {
         std::atomic_bool pthrStop;
         bool pthrOn;
         std::thread pthr;
-        nixlTime::us_t pthrDelay;
+        nixlTime::ms_t pthrDelay;
 
         /* CUDA data*/
         nixlUcxCudaCtx *cudaCtx;

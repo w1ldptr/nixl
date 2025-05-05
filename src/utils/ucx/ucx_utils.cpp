@@ -47,7 +47,8 @@ nixlUcxContext::nixlUcxContext(std::vector<std::string> devs,
                                size_t req_size,
                                nixlUcxContext::req_cb_t init_cb,
                                nixlUcxContext::req_cb_t fini_cb,
-                               nixl_ucx_mt_t __mt_type)
+                               nixl_ucx_mt_t __mt_type,
+                               bool wakeup)
 {
     ucp_params_t ucp_params;
     ucp_config_t *ucp_config;
@@ -58,6 +59,9 @@ nixlUcxContext::nixlUcxContext(std::vector<std::string> devs,
     ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES | UCP_PARAM_FIELD_MT_WORKERS_SHARED |
                             UCP_PARAM_FIELD_ESTIMATED_NUM_EPS;
     ucp_params.features = UCP_FEATURE_RMA | UCP_FEATURE_AMO32 | UCP_FEATURE_AMO64 | UCP_FEATURE_AM;
+    if (wakeup)
+        ucp_params.features |= UCP_FEATURE_WAKEUP;
+
     switch(mt_type) {
     case NIXL_UCX_MT_SINGLE:
     case NIXL_UCX_MT_WORKER:
