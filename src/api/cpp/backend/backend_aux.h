@@ -50,7 +50,7 @@ class nixlBackendInitParams {
         nixl_b_params_t*  customParams;
 
         bool              enableProgTh;
-        nixlTime::us_t    pthrDelay;
+        nixlTime::ms_t    pthrDelay;
 
         unsigned int      numWorkers;
 };
