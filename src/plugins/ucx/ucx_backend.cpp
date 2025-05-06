@@ -468,7 +468,11 @@ nixlUcxEngine::nixlUcxEngine (const nixlBackendInitParams* init_params)
 
     if (init_params->enableProgTh) {
         pthrOn = true;
-        pthrDelay = init_params->pthrDelay;
+        pthrDelay = init_params->pthrDelay / 1000;
+        if (!pthrDelay) {
+            NIXL_WARN << "Progress thread sleeps with millisecond granularity, rounding up the delay to 1ms";
+            pthrDelay = 1;
+        }
     } else {
         pthrOn = false;
     }

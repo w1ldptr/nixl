@@ -44,16 +44,16 @@ class nixlAgentConfig {
 
         /**
          * @var Progress thread frequency knob (in us)
-         *      The progress thread is calling sched_yield to avoid blocking a core
-         *      If pthrDelay time is less than sched_yield time - option has no effect
-         *      Otherwise pthread will be calling sched_yield until the specified
-         *      amount of time has past.
+         *      Progress thread event waiting timeout. Defines a delay for the thread shutdown
+         *      handler that needs to wait for the thread to wake up before it could be joined.
          */
         uint64_t pthrDelay;
         /**
          * @var Listener thread frequency knob (in us)
-         *      Listener thread sleeps in a similar way to progress thread, desrcibed previously.
-         *      These will be combined into a unified NIXL Thread API in a future version.
+         *      The listener thread is calling sched_yield to avoid blocking a core
+         *      If lthrDelay time is less than sched_yield time - option has no effect
+         *      Otherwise pthread will be calling sched_yield until the specified
+         *      amount of time has past.
          */
         uint64_t lthrDelay;
 
