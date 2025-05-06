@@ -32,11 +32,17 @@ enum nixl_ucx_mt_t {
     NIXL_UCX_MT_MAX
 };
 
+class nixlUcxRkey;
+
 class nixlUcxEp {
 private:
     ucp_ep_h  eph;
 
 public:
+    /* Rkey */
+    int rkeyImport(void* addr, size_t size, nixlUcxRkey &rkey);
+    void rkeyDestroy(nixlUcxRkey &rkey);
+
     friend class nixlUcxWorker;
 };
 
@@ -57,6 +63,7 @@ private:
 public:
 
     friend class nixlUcxWorker;
+    friend class nixlUcxEp;
 };
 
 using nixlUcxReq = void*;
@@ -124,10 +131,6 @@ public:
 
     void reqRelease(nixlUcxReq req);
     void reqCancel(nixlUcxReq req);
-
-    /* Rkey */
-    static int rkeyImport(nixlUcxEp &ep, void* addr, size_t size, nixlUcxRkey &rkey);
-    static void rkeyDestroy(nixlUcxRkey &rkey);
 
     /* Worker access */
     ucp_worker_h getWorker() const { return worker; }

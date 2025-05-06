@@ -125,7 +125,7 @@ int main()
         free((void*) addr);
         assert(0 == c[i]->memReg(buffer[i], buf_size, mem[i]));
         assert(0 == c[i]->packRkey(mem[i], addr, size));
-        assert(0 == nixlUcxWorker::rkeyImport(ep[!i], (void*) addr, size, rkey[!i]));
+        assert(0 == ep[!i].rkeyImport((void*) addr, size, rkey[!i]));
         free((void*) addr);
     }
 
@@ -199,7 +199,7 @@ int main()
 
     /* Test shutdown */
     for(i = 0; i < 2; i++) {
-        nixlUcxWorker::rkeyDestroy(rkey[i]);
+        ep[i].rkeyDestroy(rkey[i]);
         c[i]->memDereg(mem[i]);
         assert(0 == w[i].disconnect(ep[i]));
     }

@@ -804,15 +804,15 @@ nixlUcxEngine::internalMDHelper (const nixl_blob_t &blob,
     bool error = false;
     for (size_t worker_id = 0; worker_id < uws.size(); worker_id++) {
         nixlUcxRkey rkey;
-        error = nixlUcxWorker::rkeyImport(conn.getEp(worker_id), addr.data(), size, rkey);
+        error = md->conn.getEp(worker_id).rkeyImport(addr.data(), size, rkey);
         if (error)
             // TODO: error out. Should we indicate which desc failed or unroll everything prior
             break;
         md->rkeys.push_back(rkey);
     }
     if (error) {
-        for (auto &rkey: md->rkeys)
-            nixlUcxWorker::rkeyDestroy(rkey);
+        for (size_t worker_id = 0; worker_id < md->rkeys.size(); worker_id++)
+            md->conn.getEp(worker_id).rkeyDestroy(md->rkeys[worker_id]);
         return NIXL_ERR_BACKEND;
     }
 
@@ -842,8 +842,8 @@ nixl_status_t nixlUcxEngine::unloadMD (nixlBackendMD* input) {
 
     nixlUcxPublicMetadata *md = (nixlUcxPublicMetadata*) input; //typecast?
 
-    for (auto &rkey: md->rkeys)
-        nixlUcxWorker::rkeyDestroy(rkey);
+    for (size_t worker_id = 0; worker_id < md->rkeys.size(); worker_id++)
+        md->conn.getEp(worker_id).rkeyDestroy(md->rkeys[worker_id]);
     delete md;
 
     return NIXL_SUCCESS;
