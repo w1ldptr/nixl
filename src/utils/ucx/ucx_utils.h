@@ -47,6 +47,7 @@ private:
     ucp_mem_h memh;
 public:
     friend class nixlUcxWorker;
+    friend class nixlUcxContext;
 };
 
 class nixlUcxRkey {
@@ -74,6 +75,11 @@ public:
     ~nixlUcxContext();
 
     static bool mtLevelIsSupproted(nixl_ucx_mt_t mt_type);
+
+    /* Memory management */
+    int memReg(void *addr, size_t size, nixlUcxMem &mem);
+    size_t packRkey(nixlUcxMem &mem, uint64_t &addr, size_t &size);
+    void memDereg(nixlUcxMem &mem);
 
     friend class nixlUcxWorker;
 };
@@ -118,11 +124,6 @@ public:
 
     void reqRelease(nixlUcxReq req);
     void reqCancel(nixlUcxReq req);
-
-    /* Memory management */
-    static int memReg(std::shared_ptr<nixlUcxContext> &ctx, void *addr, size_t size, nixlUcxMem &mem);
-    static size_t packRkey(std::shared_ptr<nixlUcxContext> &ctx, nixlUcxMem &mem, uint64_t &addr, size_t &size);
-    static void memDereg(std::shared_ptr<nixlUcxContext> &ctx, nixlUcxMem &mem);
 
     /* Rkey */
     static int rkeyImport(nixlUcxEp &ep, void* addr, size_t size, nixlUcxRkey &rkey);

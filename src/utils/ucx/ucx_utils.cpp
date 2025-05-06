@@ -269,7 +269,7 @@ int nixlUcxWorker::disconnect_nb(nixlUcxEp &ep)
  * =========================================== */
 
 
-int nixlUcxWorker::memReg(std::shared_ptr<nixlUcxContext> &ctx, void *addr, size_t size, nixlUcxMem &mem)
+int nixlUcxContext::memReg(void *addr, size_t size, nixlUcxMem &mem)
 {
     ucs_status_t status;
 
@@ -285,7 +285,7 @@ int nixlUcxWorker::memReg(std::shared_ptr<nixlUcxContext> &ctx, void *addr, size
         .length  = mem.size,
     };
 
-    status = ucp_mem_map(ctx->ctx, &mem_params, &mem.memh);
+    status = ucp_mem_map(ctx, &mem_params, &mem.memh);
     if (status != UCS_OK) {
         /* TODOL: MSW_NET_ERROR(priv->net, "failed to ucp_mem_map (%s)\n", ucs_status_string(status)); */
         return -1;
@@ -295,12 +295,12 @@ int nixlUcxWorker::memReg(std::shared_ptr<nixlUcxContext> &ctx, void *addr, size
 }
 
 
-size_t nixlUcxWorker::packRkey(std::shared_ptr<nixlUcxContext> &ctx, nixlUcxMem &mem, uint64_t &addr, size_t &size)
+size_t nixlUcxContext::packRkey(nixlUcxMem &mem, uint64_t &addr, size_t &size)
 {
     ucs_status_t status;
     void *rkey_buf;
 
-    status = ucp_rkey_pack(ctx->ctx, mem.memh, &rkey_buf, &size);
+    status = ucp_rkey_pack(ctx, mem.memh, &rkey_buf, &size);
     if (status != UCS_OK) {
         /* TODO: MSW_NET_ERROR(priv->net, "failed to ucp_rkey_pack (%s)\n", ucs_status_string(status)); */
         return -1;
@@ -319,9 +319,9 @@ size_t nixlUcxWorker::packRkey(std::shared_ptr<nixlUcxContext> &ctx, nixlUcxMem 
     return 0;
 }
 
-void nixlUcxWorker::memDereg(std::shared_ptr<nixlUcxContext> &ctx, nixlUcxMem &mem)
+void nixlUcxContext::memDereg(nixlUcxMem &mem)
 {
-    ucp_mem_unmap(ctx->ctx, mem.memh);
+    ucp_mem_unmap(ctx, mem.memh);
 }
 
 /* ===========================================

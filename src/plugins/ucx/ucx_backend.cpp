@@ -746,11 +746,11 @@ nixl_status_t nixlUcxEngine::registerMem (const nixlBlobDesc &mem,
     }
 
     // TODO: Add nixl_mem check?
-    ret = nixlUcxWorker::memReg(uc, (void*) mem.addr, mem.len, priv->mem);
+    ret = uc->memReg((void*) mem.addr, mem.len, priv->mem);
     if (ret) {
         return NIXL_ERR_BACKEND;
     }
-    ret = nixlUcxWorker::packRkey(uc, priv->mem, rkey_addr, rkey_size);
+    ret = uc->packRkey(priv->mem, rkey_addr, rkey_size);
     if (ret) {
         return NIXL_ERR_BACKEND;
     }
@@ -765,7 +765,7 @@ nixl_status_t nixlUcxEngine::registerMem (const nixlBlobDesc &mem,
 nixl_status_t nixlUcxEngine::deregisterMem (nixlBackendMD* meta)
 {
     nixlUcxPrivateMetadata *priv = (nixlUcxPrivateMetadata*) meta;
-    nixlUcxWorker::memDereg(uc, priv->mem);
+    uc->memDereg(priv->mem);
     delete priv;
     return NIXL_SUCCESS;
 }
