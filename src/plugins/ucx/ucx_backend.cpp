@@ -457,15 +457,13 @@ nixlUcxEngine::nixlUcxEngine (const nixlBackendInitParams* init_params)
                                           init_params->enableProgTh);
     for (unsigned int i = 0; i < init_params->numWorkers; i++) {
         uint64_t n_addr;
-        auto uw = std::make_unique<nixlUcxWorker>(uc);
+        const auto & uw = uws.emplace_back(std::make_unique<nixlUcxWorker>(uc));
         uw->epAddr(n_addr, workerSize);
         workerAddr = (void*) n_addr;
 
         uw->regAmCallback(CONN_CHECK, connectionCheckAmCb, this);
         uw->regAmCallback(DISCONNECT, connectionTermAmCb, this);
         uw->regAmCallback(NOTIF_STR, notifAmCb, this);
-
-        uws.push_back(std::move(uw));
     }
 
     if (init_params->enableProgTh) {
