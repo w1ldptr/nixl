@@ -804,17 +804,17 @@ nixlUcxEngine::internalMDHelper (const nixl_blob_t &blob,
     nixlSerDes::_stringToBytes(addr.data(), blob, size);
 
     bool error = false;
-    for (size_t worker_id = 0; worker_id < uws.size(); worker_id++) {
+    for (size_t wid = 0; wid < uws.size(); wid++) {
         nixlUcxRkey rkey;
-        error = md->conn.getEp(worker_id).rkeyImport(addr.data(), size, rkey);
+        error = md->conn.getEp(wid).rkeyImport(addr.data(), size, rkey);
         if (error)
             // TODO: error out. Should we indicate which desc failed or unroll everything prior
             break;
         md->rkeys.push_back(rkey);
     }
     if (error) {
-        for (size_t worker_id = 0; worker_id < md->rkeys.size(); worker_id++)
-            md->conn.getEp(worker_id).rkeyDestroy(md->rkeys[worker_id]);
+        for (size_t wid = 0; wid < md->rkeys.size(); wid++)
+            md->conn.getEp(wid).rkeyDestroy(md->rkeys[wid]);
         return NIXL_ERR_BACKEND;
     }
 
@@ -844,8 +844,8 @@ nixl_status_t nixlUcxEngine::unloadMD (nixlBackendMD* input) {
 
     nixlUcxPublicMetadata *md = (nixlUcxPublicMetadata*) input; //typecast?
 
-    for (size_t worker_id = 0; worker_id < md->rkeys.size(); worker_id++)
-        md->conn.getEp(worker_id).rkeyDestroy(md->rkeys[worker_id]);
+    for (size_t wid = 0; wid < md->rkeys.size(); wid++)
+        md->conn.getEp(wid).rkeyDestroy(md->rkeys[wid]);
     delete md;
 
     return NIXL_SUCCESS;
@@ -1115,14 +1115,14 @@ nixl_status_t nixlUcxEngine::genNotif(const std::string &remote_agent, const std
 {
     nixl_status_t ret;
     nixlUcxReq req;
-    size_t worker_id = getWorkerId();
+    size_t wid = getWorkerId();
 
-    ret = notifSendPriv(remote_agent, msg, req, worker_id);
+    ret = notifSendPriv(remote_agent, msg, req, wid);
 
     switch(ret) {
     case NIXL_IN_PROG:
         /* do not track the request */
-        getWorker(worker_id)->reqRelease(req);
+        getWorker(wid)->reqRelease(req);
     case NIXL_SUCCESS:
         break;
     default:
