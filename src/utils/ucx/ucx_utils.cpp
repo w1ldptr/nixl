@@ -340,8 +340,9 @@ static void err_cb(void *arg, ucp_ep_h ep, ucs_status_t status)
 }
 
 
-int nixlUcxWorker::connect(void* addr, size_t size, nixlUcxEp &ep)
+absl::StatusOr<std::unique_ptr<nixlUcxEp>> nixlUcxWorker::connect(void* addr, size_t size)
 {
+    std::unique_ptr<nixlUcxEp> ep = std::make_unique<nixlUcxEp>();
     ucp_ep_params_t ep_params;
     ucs_status_t status;
 
@@ -356,15 +357,15 @@ int nixlUcxWorker::connect(void* addr, size_t size, nixlUcxEp &ep)
     ep_params.err_handler.cb = err_cb;
     ep_params.address = (ucp_address_t*) addr;
 
-    status = ucp_ep_create(worker, &ep_params, &ep.eph);
+    status = ucp_ep_create(worker, &ep_params, &ep->eph);
     if (status != UCS_OK) {
         /* TODO: proper cleanup */
         /* TODO:  MSW_NET_ERROR(priv->net, "!!! failed to create endpoint to remote %d (%s)\n",
                       status, ucs_status_string(status)); */
-        return -1;
+        return absl::UnavailableError("failed to create ep");
     }
 
-    return 0;
+    return ep;
 }
 
 /* ===========================================

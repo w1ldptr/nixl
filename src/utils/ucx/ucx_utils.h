@@ -24,6 +24,7 @@ extern "C"
 
 #include <memory>
 #include "nixl.h"
+#include "absl/status/statusor.h"
 
 enum nixl_ucx_mt_t {
     NIXL_UCX_MT_SINGLE,
@@ -123,7 +124,7 @@ public:
 
     /* Connection */
     int epAddr(uint64_t &addr, size_t &size);
-    int connect(void* addr, size_t size, nixlUcxEp &ep);
+    absl::StatusOr<std::unique_ptr<nixlUcxEp>> connect(void* addr, size_t size);
 
     /* Active message handling */
     int regAmCallback(unsigned msg_id, ucp_am_recv_callback_t cb, void* arg);

@@ -44,11 +44,11 @@ struct nixl_ucx_am_hdr {
 class nixlUcxConnection : public nixlBackendConnMD {
     private:
         std::string remoteAgent;
-        std::vector<nixlUcxEp> eps;
+        std::vector<std::unique_ptr<nixlUcxEp>> eps;
         volatile bool connected;
 
     public:
-        nixlUcxEp &getEp(size_t ep_id) {
+        std::unique_ptr<nixlUcxEp> &getEp(size_t ep_id) {
             return eps[ep_id];
         }
 

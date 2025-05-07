@@ -96,7 +96,7 @@ int main()
         nixlUcxWorker(c[0]),
         nixlUcxWorker(c[1])
     };
-    nixlUcxEp ep[2];
+    std::unique_ptr<nixlUcxEp> ep[2];
     nixlUcxReq req;
     uint64_t buffer;
     int ret, i;
@@ -115,7 +115,9 @@ int main()
         uint64_t addr;
         size_t size;
         assert (0 == w[i].epAddr(addr, size));
-        assert (0 == w[!i].connect((void*) addr, size, ep[!i]));
+        auto result = w[!i].connect((void*) addr, size);
+        assert(result.ok());
+        ep[!i] = std::move(*result);
 
 	//no need for mem_reg with active messages
 	//assert (0 == w[i].mem_reg(buffer[i], 128, mem[i]));
@@ -137,7 +139,7 @@ int main()
     w[0].progress();
 
     /* Test first callback */
-    ret = ep[1].sendAm(check_cb_id, &hdr, sizeof(struct sample_header), (void*) &buffer, sizeof(buffer), 0, req);
+    ret = ep[1]->sendAm(check_cb_id, &hdr, sizeof(struct sample_header), (void*) &buffer, sizeof(buffer), 0, req);
     assert (ret == 0);
 
     while (ret == 0){
@@ -151,7 +153,7 @@ int main()
     uint32_t flags = 0;
     flags |= UCP_AM_SEND_FLAG_RNDV;
 
-    ret =  ep[1].sendAm(rndv_cb_id, &hdr, sizeof(struct sample_header), big_buffer, 8192, flags, req);
+    ret =  ep[1]->sendAm(rndv_cb_id, &hdr, sizeof(struct sample_header), big_buffer, 8192, flags, req);
     assert (ret == 0);
 
     while (ret == 0){
@@ -166,7 +168,7 @@ int main()
 
     /* Test shutdown */
     for (i = 0; i < 2; i++) {
-        assert (0 == ep[i].disconnect_nb());
+        assert (0 == ep[i]->disconnect_nb());
     }
 
     free (big_buffer);
