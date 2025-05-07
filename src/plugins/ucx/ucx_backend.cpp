@@ -378,7 +378,7 @@ void nixlUcxEngine::progressFunc()
                 status = ucp_worker_arm(uw->getWorker());
             }
 
-            if (made_progress)
+            if (made_progress && !wid)
                 notifProgress();
         }
 
