@@ -59,15 +59,15 @@ public:
                          const nixl_meta_dlist_t &remote,
                          const std::string &remote_agent,
                          nixlBackendReqH *&handle,
-                         const nixl_opt_b_args_t *opt_args) override;
+                         const nixl_opt_b_args_t *opt_args) const override;
   nixl_status_t postXfer(const nixl_xfer_op_t &operation,
                          const nixl_meta_dlist_t &local,
                          const nixl_meta_dlist_t &remote,
                          const std::string &remote_agent,
                          nixlBackendReqH *&handle,
-                         const nixl_opt_b_args_t *opt_args) override;
-  nixl_status_t checkXfer(nixlBackendReqH *handle) override;
-  nixl_status_t releaseReqH(nixlBackendReqH *handle) override;
+                         const nixl_opt_b_args_t *opt_args) const override;
+  nixl_status_t checkXfer(nixlBackendReqH *handle) const override;
+  nixl_status_t releaseReqH(nixlBackendReqH *handle) const override;
   nixl_status_t getPublicData(const nixlBackendMD *meta, std::string &str) const override {
     assert(sharedState > 0);
     return NIXL_SUCCESS;

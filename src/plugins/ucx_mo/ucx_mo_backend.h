@@ -90,7 +90,7 @@ private:
     int setEngCnt(uint32_t host_engines);
     uint32_t getEngCnt();
     int32_t getEngIdx(nixl_mem_t type, uint64_t devId);
-    std::string getEngName(const std::string &baseName, uint32_t eidx);
+    std::string getEngName(const std::string &baseName, uint32_t eidx) const;
     std::string getEngBase(const std::string &engName);
     bool pthrOn;
 
@@ -99,6 +99,7 @@ private:
     // Map of agent name to saved nixlUcxConnection info
     using remote_conn_map_t = std::map<std::string, nixlUcxMoConnection>;
     using remote_comm_it_t = remote_conn_map_t::iterator;
+    using remote_comm_const_it_t = remote_conn_map_t::const_iterator;
     remote_conn_map_t remoteConnMap;
 
     // Memory helper
@@ -148,16 +149,16 @@ public:
                             const nixl_meta_dlist_t &remote,
                             const std::string &remote_agent,
                             nixlBackendReqH* &handle,
-                            const nixl_opt_b_args_t* opt_args=nullptr);
+                            const nixl_opt_b_args_t* opt_args=nullptr) const;
 
     nixl_status_t postXfer (const nixl_xfer_op_t &operation,
                             const nixl_meta_dlist_t &local,
                             const nixl_meta_dlist_t &remote,
                             const std::string &remote_agent,
                             nixlBackendReqH* &handle,
-                            const nixl_opt_b_args_t* opt_args=nullptr);
-    nixl_status_t checkXfer (nixlBackendReqH* handle);
-    nixl_status_t releaseReqH(nixlBackendReqH* handle);
+                            const nixl_opt_b_args_t* opt_args=nullptr) const;
+    nixl_status_t checkXfer (nixlBackendReqH* handle) const;
+    nixl_status_t releaseReqH(nixlBackendReqH* handle) const;
 
     int progress();
 

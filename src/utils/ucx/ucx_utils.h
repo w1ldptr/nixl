@@ -104,7 +104,7 @@ public:
 
     /* Active message handling */
     int regAmCallback(unsigned msg_id, ucp_am_recv_callback_t cb, void* arg);
-    nixl_status_t sendAm(nixlUcxEp &ep, unsigned msg_id,
+    nixl_status_t sendAm(const nixlUcxEp &ep, unsigned msg_id,
                          void* hdr, size_t hdr_len,
                          void* buffer, size_t len,
                          uint32_t flags, nixlUcxReq &req);

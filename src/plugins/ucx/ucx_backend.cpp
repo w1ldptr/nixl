@@ -818,7 +818,7 @@ nixl_status_t nixlUcxEngine::prepXfer (const nixl_xfer_op_t &operation,
                                        const nixl_meta_dlist_t &remote,
                                        const std::string &remote_agent,
                                        nixlBackendReqH* &handle,
-                                       const nixl_opt_b_args_t* opt_args)
+                                       const nixl_opt_b_args_t* opt_args) const
 {
     /* TODO: try to get from a pool first */
     nixlUcxBackendH *intHandle = new nixlUcxBackendH(uw);
@@ -832,7 +832,7 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
                                        const nixl_meta_dlist_t &remote,
                                        const std::string &remote_agent,
                                        nixlBackendReqH* &handle,
-                                       const nixl_opt_b_args_t* opt_args)
+                                       const nixl_opt_b_args_t* opt_args) const
 {
     size_t lcnt = local.descCount();
     size_t rcnt = remote.descCount();
@@ -895,14 +895,14 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
     return intHandle->status();
 }
 
-nixl_status_t nixlUcxEngine::checkXfer (nixlBackendReqH* handle)
+nixl_status_t nixlUcxEngine::checkXfer (nixlBackendReqH* handle) const
 {
     nixlUcxBackendH *intHandle = (nixlUcxBackendH *)handle;
 
     return intHandle->status();
 }
 
-nixl_status_t nixlUcxEngine::releaseReqH(nixlBackendReqH* handle)
+nixl_status_t nixlUcxEngine::releaseReqH(nixlBackendReqH* handle) const
 {
     nixlUcxBackendH *intHandle = (nixlUcxBackendH *)handle;
     nixl_status_t status = intHandle->release();
@@ -924,11 +924,10 @@ int nixlUcxEngine::progress() {
 
 //agent will provide cached msg
 nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
-                                           const std::string &msg, nixlUcxReq &req)
+                                           const std::string &msg, nixlUcxReq &req) const
 {
     nixlSerDes ser_des;
     std::string *ser_msg;
-    nixlUcxConnection conn;
     // TODO - temp fix, need to have an mpool
     static struct nixl_ucx_am_hdr hdr;
     uint32_t flags = 0;
@@ -941,7 +940,7 @@ nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
         return NIXL_ERR_NOT_FOUND;
     }
 
-    conn = remoteConnMap[remote_agent];
+    const nixlUcxConnection &conn = search->second;
 
     hdr.op = NOTIF_STR;
     flags |= UCP_AM_SEND_FLAG_EAGER;

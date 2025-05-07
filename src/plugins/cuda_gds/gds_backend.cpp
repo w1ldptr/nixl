@@ -218,7 +218,7 @@ nixl_status_t nixlGdsEngine::prepXfer (const nixl_xfer_op_t &operation,
                                        const nixl_meta_dlist_t &remote,
                                        const std::string &remote_agent,
                                        nixlBackendReqH* &handle,
-                                       const nixl_opt_b_args_t* opt_args)
+                                       const nixl_opt_b_args_t* opt_args) const
 {
     nixlGdsBackendReqH* gds_handle = new nixlGdsBackendReqH();
     size_t buf_cnt = local.descCount();
@@ -324,7 +324,7 @@ nixl_status_t nixlGdsEngine::postXfer(const nixl_xfer_op_t &operation,
                                       const nixl_meta_dlist_t &remote,
                                       const std::string &remote_agent,
                                       nixlBackendReqH* &handle,
-                                      const nixl_opt_b_args_t* opt_args)
+                                      const nixl_opt_b_args_t* opt_args) const
 {
     nixlGdsBackendReqH* gds_handle = (nixlGdsBackendReqH*)handle;
 
@@ -361,7 +361,7 @@ nixl_status_t nixlGdsEngine::postXfer(const nixl_xfer_op_t &operation,
 
 nixl_status_t nixlGdsEngine::createAndSubmitBatch(const std::vector<GdsTransferRequestH>& requests,
                                                   size_t start_idx, size_t batch_size,
-                                                  std::vector<nixlGdsIOBatch*>& batch_list)
+                                                  std::vector<nixlGdsIOBatch*>& batch_list) const
 {
     nixlGdsIOBatch* batch = batch_pool->getBatch(batch_size);
     if (!batch) {
@@ -395,7 +395,7 @@ nixl_status_t nixlGdsEngine::createAndSubmitBatch(const std::vector<GdsTransferR
     return NIXL_SUCCESS;
 }
 
-nixl_status_t nixlGdsEngine::checkXfer(nixlBackendReqH* handle)
+nixl_status_t nixlGdsEngine::checkXfer(nixlBackendReqH* handle) const
 {
     nixlGdsBackendReqH *gds_handle = (nixlGdsBackendReqH *)handle;
 
@@ -423,7 +423,7 @@ nixl_status_t nixlGdsEngine::checkXfer(nixlBackendReqH* handle)
     return status;
 }
 
-nixl_status_t nixlGdsEngine::releaseReqH(nixlBackendReqH* handle)
+nixl_status_t nixlGdsEngine::releaseReqH(nixlBackendReqH* handle) const
 {
 
     nixlGdsBackendReqH *gds_handle = (nixlGdsBackendReqH *) handle;

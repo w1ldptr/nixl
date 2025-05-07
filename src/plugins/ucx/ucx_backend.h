@@ -158,7 +158,7 @@ class nixlUcxEngine : public nixlBackendEngine {
                                       size_t length,
                                       const ucp_am_recv_param_t *param);
         nixl_status_t notifSendPriv(const std::string &remote_agent,
-                                    const std::string &msg, nixlUcxReq &req);
+                                    const std::string &msg, nixlUcxReq &req) const;
         void notifProgress();
         void notifCombineHelper(notif_list_t &src, notif_list_t &tgt);
         void notifProgressCombineHelper(notif_list_t &src, notif_list_t &tgt);
@@ -204,17 +204,17 @@ class nixlUcxEngine : public nixlBackendEngine {
                                 const nixl_meta_dlist_t &remote,
                                 const std::string &remote_agent,
                                 nixlBackendReqH* &handle,
-                                const nixl_opt_b_args_t* opt_args=nullptr);
+                                const nixl_opt_b_args_t* opt_args=nullptr) const;
 
         nixl_status_t postXfer (const nixl_xfer_op_t &operation,
                                 const nixl_meta_dlist_t &local,
                                 const nixl_meta_dlist_t &remote,
                                 const std::string &remote_agent,
                                 nixlBackendReqH* &handle,
-                                const nixl_opt_b_args_t* opt_args=nullptr);
+                                const nixl_opt_b_args_t* opt_args=nullptr) const;
 
-        nixl_status_t checkXfer (nixlBackendReqH* handle);
-        nixl_status_t releaseReqH(nixlBackendReqH* handle);
+        nixl_status_t checkXfer (nixlBackendReqH* handle) const;
+        nixl_status_t releaseReqH(nixlBackendReqH* handle) const;
 
         int progress();
 

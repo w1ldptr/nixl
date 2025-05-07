@@ -372,7 +372,7 @@ int nixlUcxWorker::regAmCallback(unsigned msg_id, ucp_am_recv_callback_t cb, voi
     return 0;
 }
 
-nixl_status_t nixlUcxWorker::sendAm(nixlUcxEp &ep, unsigned msg_id,
+nixl_status_t nixlUcxWorker::sendAm(const nixlUcxEp &ep, unsigned msg_id,
                                     void* hdr, size_t hdr_len,
                                     void* buffer, size_t len,
                                     uint32_t flags, nixlUcxReq &req)
