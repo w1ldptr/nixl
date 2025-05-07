@@ -491,9 +491,6 @@ nixl_status_t nixlUcxEngine::endConn(const std::string &remote_agent) {
         return NIXL_ERR_NOT_FOUND;
     }
 
-    if(search->second.getEp().disconnect_nb() < 0)
-        return NIXL_ERR_BACKEND;
-
     //thread safety?
     remoteConnMap.erase(search);
 
@@ -586,10 +583,10 @@ nixl_status_t nixlUcxEngine::connect(const std::string &remote_agent) {
     //agent names should never be long enough to need RNDV
     flags |= UCP_AM_SEND_FLAG_EAGER;
 
-    ret = search->second.getEp().sendAm(CONN_CHECK,
-                                        &hdr, sizeof(struct nixl_ucx_am_hdr),
-                                        (void*) localAgent.data(), localAgent.size(),
-                                        flags, req);
+    ret = search->second->getEp()->sendAm(CONN_CHECK,
+                                          &hdr, sizeof(struct nixl_ucx_am_hdr),
+                                          (void*) localAgent.data(), localAgent.size(),
+                                          flags, req);
 
     if(ret < 0) {
         return ret;
@@ -621,10 +618,10 @@ nixl_status_t nixlUcxEngine::disconnect(const std::string &remote_agent) {
         //agent names should never be long enough to need RNDV
         flags |= UCP_AM_SEND_FLAG_EAGER;
 
-        ret = search->second.getEp().sendAm(DISCONNECT,
-                                            &hdr, sizeof(struct nixl_ucx_am_hdr),
-                                            (void*) localAgent.data(), localAgent.size(),
-                                            flags, req);
+        ret = search->second->getEp()->sendAm(DISCONNECT,
+                                              &hdr, sizeof(struct nixl_ucx_am_hdr),
+                                              (void*) localAgent.data(), localAgent.size(),
+                                              flags, req);
 
         //don't care
         if(ret == NIXL_IN_PROG){
@@ -641,8 +638,6 @@ nixl_status_t nixlUcxEngine::loadRemoteConnInfo (const std::string &remote_agent
                                                  const std::string &remote_conn_info)
 {
     size_t size = remote_conn_info.size();
-    nixlUcxConnection conn;
-    int ret;
     //TODO: eventually std::byte?
     char* addr = new char[size];
 
@@ -651,13 +646,14 @@ nixl_status_t nixlUcxEngine::loadRemoteConnInfo (const std::string &remote_agent
     }
 
     nixlSerDes::_stringToBytes((void*) addr, remote_conn_info, size);
-    ret = uw->connect(addr, size, conn.ep);
-    if (ret) {
+    std::shared_ptr<nixlUcxConnection> conn = std::make_shared<nixlUcxConnection>();
+    auto result = uw->connect(addr, size);
+    if (!result.ok())
         return NIXL_ERR_BACKEND;
-    }
+    conn->ep = std::move(*result);
 
-    conn.remoteAgent = remote_agent;
-    conn.connected = false;
+    conn->remoteAgent = remote_agent;
+    conn->connected = false;
 
     remoteConnMap.insert({remote_agent, conn});
 
@@ -742,7 +738,7 @@ nixlUcxEngine::internalMDHelper (const nixl_blob_t &blob,
     std::vector<char> addr(size);
     nixlSerDes::_stringToBytes(addr.data(), blob, size);
 
-    int ret = md->conn.getEp().rkeyImport(addr.data(), size, md->rkey);
+    int ret = md->conn->getEp()->rkeyImport(addr.data(), size, md->rkey);
     if (ret) {
         // TODO: error out. Should we indicate which desc failed or unroll everything prior
         return NIXL_ERR_BACKEND;
@@ -773,7 +769,7 @@ nixl_status_t nixlUcxEngine::unloadMD (nixlBackendMD* input) {
 
     nixlUcxPublicMetadata *md = (nixlUcxPublicMetadata*) input; //typecast?
 
-    md->conn.getEp().rkeyDestroy(md->rkey);
+    md->conn->getEp()->rkeyDestroy(md->rkey);
     delete md;
 
     return NIXL_SUCCESS;
@@ -852,10 +848,10 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
 
         switch (operation) {
         case NIXL_READ:
-            ret = rmd->conn.getEp().read((uint64_t) raddr, rmd->rkey, laddr, lmd->mem, lsize, req);
+            ret = rmd->conn->getEp()->read((uint64_t) raddr, rmd->rkey, laddr, lmd->mem, lsize, req);
             break;
         case NIXL_WRITE:
-            ret = rmd->conn.getEp().write(laddr, lmd->mem, (uint64_t) raddr, rmd->rkey, lsize, req);
+            ret = rmd->conn->getEp()->write(laddr, lmd->mem, (uint64_t) raddr, rmd->rkey, lsize, req);
             break;
         default:
             return NIXL_ERR_INVALID_PARAM;
@@ -867,7 +863,7 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
     }
 
     rmd = (nixlUcxPublicMetadata*) remote[0].metadataP;
-    ret = rmd->conn.getEp().flushEp(req);
+    ret = rmd->conn->getEp()->flushEp(req);
     if (_retHelper(ret, intHandle, req)) {
         return ret;
     }
@@ -935,10 +931,10 @@ nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
     // TODO: replace with mpool for performance
     ser_msg = new std::string(ser_des.exportStr());
 
-    ret = search->second.getEp().sendAm(NOTIF_STR,
-                                        &hdr, sizeof(struct nixl_ucx_am_hdr),
-                                        (void*) ser_msg->data(), ser_msg->size(),
-                                        flags, req);
+    ret = search->second->getEp()->sendAm(NOTIF_STR,
+                                          &hdr, sizeof(struct nixl_ucx_am_hdr),
+                                          (void*) ser_msg->data(), ser_msg->size(),
+                                          flags, req);
 
     if (ret == NIXL_IN_PROG) {
         nixlUcxIntReq* nReq = (nixlUcxIntReq*)req;
