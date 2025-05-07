@@ -16,6 +16,7 @@
  */
 #include <cassert>
 #include <iostream>
+#include <mutex>
 #include <cufile.h>
 #include "gds_backend.h"
 #include "common/str_tools.h"
@@ -27,14 +28,63 @@
 /** Create a batch pool of size 32 */
 #define DEFAULT_BATCH_POOL_SIZE 32
 
+class nixlGdsBatchPool {
+public:
+    nixlGdsBatchPool(unsigned int poolSize_, unsigned int batchLimit_);
+    ~nixlGdsBatchPool();
+
+    nixlGdsIOBatch *getBatch(unsigned int size);
+    void putBatch(nixlGdsIOBatch *batch);
+
+    unsigned int getBatchLimit() const {
+        return batchLimit;
+    }
+private:
+    const unsigned int poolSize;
+    const unsigned int batchLimit;
+    std::mutex batchPoolLock;
+    std::list<nixlGdsIOBatch*> batchPool;
+};
+
+nixlGdsBatchPool::nixlGdsBatchPool(unsigned int poolSize_, unsigned int batchLimit_): poolSize(poolSize_), batchLimit(batchLimit_)  {
+        for (unsigned int i = 0; i < poolSize; i++)
+            batchPool.push_back(new nixlGdsIOBatch(batchLimit));
+}
+
+nixlGdsBatchPool::~nixlGdsBatchPool() {
+    for (auto* batch : batchPool)
+        delete batch;
+}
+
+nixlGdsIOBatch *nixlGdsBatchPool::getBatch(unsigned int size) {
+    const std::lock_guard<std::mutex> lock(batchPoolLock);
+
+    // Use a pre-allocated batch if available
+    if (!batchPool.empty()) {
+        nixlGdsIOBatch* batch = batchPool.back();
+        batchPool.pop_back();
+        batch->reset();
+        return batch;
+    }
+    // Return nullptr if pool is empty - don't create new batches in the data path
+    return nullptr;
+}
+
+void nixlGdsBatchPool::putBatch(nixlGdsIOBatch *batch) {
+    const std::lock_guard<std::mutex> lock(batchPoolLock);
+
+    // Only keep up to batch_pool_size batches
+    batchPool.push_back(batch);
+}
+
 nixlGdsEngine::nixlGdsEngine(const nixlBackendInitParams* init_params)
     : nixlBackendEngine(init_params)
 {
     gds_utils = new gdsUtil();
 
     // Set default values
-    batch_pool_size = DEFAULT_BATCH_POOL_SIZE;
-    batch_limit = DEFAULT_BATCH_LIMIT;
+    unsigned int batch_pool_size = DEFAULT_BATCH_POOL_SIZE;
+    unsigned int batch_limit = DEFAULT_BATCH_LIMIT;
     max_request_size = DEFAULT_MAX_REQUEST_SIZE;
 
     // Read custom parameters if available
@@ -80,11 +130,7 @@ nixlGdsEngine::nixlGdsEngine(const nixlBackendInitParams* init_params)
         return;
     }
 
-    // Initialize the batch pool
-    for (unsigned int i = 0; i < batch_pool_size; i++) {
-        batch_pool.push_back(new nixlGdsIOBatch(batch_limit));
-    }
-
+    batch_pool = std::make_unique<nixlGdsBatchPool>(batch_pool_size, batch_limit);
 }
 
 nixl_status_t nixlGdsEngine::registerMem(const nixlBlobDesc &mem,
@@ -273,23 +319,6 @@ nixl_status_t nixlGdsEngine::prepXfer (const nixl_xfer_op_t &operation,
     return NIXL_SUCCESS;
 }
 
-nixlGdsIOBatch* nixlGdsEngine::getBatchFromPool(unsigned int size) {
-    // Use a pre-allocated batch if available
-    if (!batch_pool.empty()) {
-        nixlGdsIOBatch* batch = batch_pool.back();
-        batch_pool.pop_back();
-        batch->reset();
-        return batch;
-    }
-    // Return nullptr if pool is empty - don't create new batches in the data path
-    return nullptr;
-}
-
-void nixlGdsEngine::returnBatchToPool(nixlGdsIOBatch* batch) {
-    // Only keep up to batch_pool_size batches
-        batch_pool.push_back(batch);
-}
-
 nixl_status_t nixlGdsEngine::postXfer(const nixl_xfer_op_t &operation,
                                       const nixl_meta_dlist_t &local,
                                       const nixl_meta_dlist_t &remote,
@@ -311,7 +340,7 @@ nixl_status_t nixlGdsEngine::postXfer(const nixl_xfer_op_t &operation,
 
     while (current_req < request_list.size()) {
         size_t batch_size = std::min(request_list.size() - current_req,
-                                     (size_t)batch_limit);
+                                     (size_t)batch_pool->getBatchLimit());
         nixl_status_t status = createAndSubmitBatch(request_list, current_req,
                                                     batch_size, gds_handle->batch_io_list);
 
@@ -319,7 +348,7 @@ nixl_status_t nixlGdsEngine::postXfer(const nixl_xfer_op_t &operation,
             // Clean up on error
             for (auto* batch : gds_handle->batch_io_list) {
                 batch->cancelBatch();
-                returnBatchToPool(batch);
+                batch_pool->putBatch(batch);
             }
             gds_handle->batch_io_list.clear();
             return status;
@@ -334,7 +363,7 @@ nixl_status_t nixlGdsEngine::createAndSubmitBatch(const std::vector<GdsTransferR
                                                   size_t start_idx, size_t batch_size,
                                                   std::vector<nixlGdsIOBatch*>& batch_list)
 {
-    nixlGdsIOBatch* batch = getBatchFromPool(batch_size);
+    nixlGdsIOBatch* batch = batch_pool->getBatch(batch_size);
     if (!batch) {
         std::cerr << "GDS batch pool exhausted" << std::endl;
         return NIXL_ERR_BACKEND;
@@ -344,21 +373,21 @@ nixl_status_t nixlGdsEngine::createAndSubmitBatch(const std::vector<GdsTransferR
     for (size_t i = 0; i < batch_size; i++) {
         const auto& req = requests[start_idx + i];
         if (!req.addr || !req.fh) {
-            returnBatchToPool(batch);
+            batch_pool->putBatch(batch);
             return NIXL_ERR_INVALID_PARAM;
         }
 
         nixl_status_t status = batch->addToBatch(req.fh, req.addr, req.size,
                                                req.file_offset, 0, req.op);
         if (status != NIXL_SUCCESS) {
-            returnBatchToPool(batch);
+            batch_pool->putBatch(batch);
             return NIXL_ERR_INVALID_PARAM;
         }
     }
 
     nixl_status_t status = batch->submitBatch(0);
     if (status != NIXL_SUCCESS) {
-        returnBatchToPool(batch);
+        batch_pool->putBatch(batch);
         return NIXL_ERR_BACKEND;
     }
 
@@ -386,7 +415,7 @@ nixl_status_t nixlGdsEngine::checkXfer(nixlBackendReqH* handle)
         if (status < 0) {
             batch->cancelBatch();
         }
-        returnBatchToPool(batch);
+        batch_pool->putBatch(batch);
     }
 
     gds_handle->batch_io_list.clear();
@@ -406,15 +435,6 @@ nixl_status_t nixlGdsEngine::releaseReqH(nixlBackendReqH* handle)
 }
 
 nixlGdsEngine::~nixlGdsEngine() {
-    // Clean up the batch pool
-    for (auto* batch : batch_pool) {
-        if (batch) {
-            batch->destroyBatch();  // Explicitly destroy the batch before deleting
-            delete batch;
-        }
-    }
-    batch_pool.clear();
-
     if (gds_utils) {
         gds_utils->closeGdsDriver();
         delete gds_utils;

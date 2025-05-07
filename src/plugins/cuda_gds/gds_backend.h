@@ -25,6 +25,7 @@
 #include <fcntl.h>
 #include <list>
 #include <vector>
+#include <memory>
 #include "gds_utils.h"
 #include "backend/backend_engine.h"
 
@@ -83,17 +84,15 @@ class nixlGdsBackendReqH : public nixlBackendReqH {
         }
 };
 
+class nixlGdsBatchPool;
+
 class nixlGdsEngine : public nixlBackendEngine {
     private:
+        std::unique_ptr<nixlGdsBatchPool> batch_pool;
         gdsUtil *gds_utils;
         std::unordered_map<int, gdsFileHandle> gds_file_map;
-        std::list<nixlGdsIOBatch*> batch_pool;
-        unsigned int batch_pool_size;  // Renamed from pool_size
-        unsigned int batch_limit;      // Added for configurable batch limit
         unsigned int max_request_size; // Added for configurable request size
 
-        nixlGdsIOBatch* getBatchFromPool(unsigned int size);
-        void returnBatchToPool(nixlGdsIOBatch* batch);
         nixl_status_t createAndSubmitBatch(const std::vector<GdsTransferRequestH>& requests,
                                            size_t start_idx, size_t batch_size,
                                            std::vector<nixlGdsIOBatch*>& batch_list);
