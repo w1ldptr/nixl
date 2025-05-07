@@ -16,6 +16,9 @@
  */
 #include "ucx_backend.h"
 #include "serdes/serdes.h"
+#include "common/nixl_log.h"
+#include <poll.h>
+#include <unistd.h>
 
 #ifdef HAVE_CUDA
 
@@ -23,8 +26,6 @@
 #include <cufile.h>
 
 #endif
-
-static constexpr int const noSyncIters = 32;
 
 /****************************************
  * CUDA related code
@@ -350,27 +351,45 @@ void nixlUcxEngine::progressFunc()
     }
     pthrActiveCV.notify_one();
 
+    std::vector<pollfd> poll_fds;
+    for (auto &uw: uws) {
+        int fd;
+        if (ucp_worker_get_efd(uw->getWorker(), &fd) == UCS_OK)
+            poll_fds.push_back({fd, POLLIN, 0});
+        else
+            NIXL_ERROR << "Couldn't obtain fd for a worker";
+    }
+    poll_fds.push_back({pthrStopFds[0], POLLIN, 0});
+
+    std::vector<size_t> active;
+    for (size_t wid = 0; wid < uws.size(); wid++)
+        active.push_back(wid);
+
     while (!pthrStop) {
-        int i;
-        for(i = 0; i < noSyncIters; i++) {
-            for (auto &uw: uws)
-                uw->progress();
+        for (auto wid: active) {
+            bool made_progress = false;
+            ucs_status_t status = UCS_INPROGRESS;
+            const auto &uw = uws[wid];
+
+            while (status != UCS_OK) {
+                while (uw->progress())
+                    made_progress = true;
+
+                status = ucp_worker_arm(uw->getWorker());
+            }
+
+            if (made_progress && !wid)
+                notifProgress();
         }
-        notifProgress();
-        // TODO: once NIXL thread infrastructure is available - move it there!!!
 
-        // {
-        //     static uint64_t cnt = 0;
-        //     if ( !(cnt % 1000000)) {
-        //         std::cout << "Progress round" << std::endl;
-        //     }
-        //     cnt++;
-        // }
+        active.clear();
+        while (poll(poll_fds.data(), poll_fds.size(), -1) == 0);
 
-        /* Wait for predefined number of */
-        us_t start = getUs();
-        while( (start + pthrDelay) > getUs()) {
-            std::this_thread::yield();
+        for (size_t wid = 0; wid < uws.size() && wid < poll_fds.size(); wid++) {
+            if (poll_fds[wid].revents & POLLIN) {
+                active.push_back(wid);
+                poll_fds[wid].revents = 0;
+            }
         }
     }
 }
@@ -402,6 +421,7 @@ void nixlUcxEngine::progressThreadStop()
     }
 
     pthrStop = true;
+    while (write(pthrStopFds[1], "x", 1) != 1);
     pthr.join();
 }
 
@@ -431,11 +451,24 @@ nixlUcxEngine::nixlUcxEngine (const nixlBackendInitParams* init_params)
         }
     }
 
+    if (init_params->enableProgTh) {
+        pthrOn = true;
+        int err = pipe(pthrStopFds);
+        if (err) {
+            NIXL_ERROR << "Failed to create progress thread pipe with error " << err;
+            this->initErr = true;
+            return;
+        }
+    } else {
+        pthrOn = false;
+    }
+
     if (custom_params->count("device_list")!=0)
         devs = str_split((*custom_params)["device_list"], ", ");
 
     uc = std::make_shared<nixlUcxContext>(devs, sizeof(nixlUcxIntReq),
-                                          _internalRequestInit, _internalRequestFini, NIXL_UCX_MT_WORKER);
+                                          _internalRequestInit, _internalRequestFini, NIXL_UCX_MT_WORKER,
+                                          init_params->enableProgTh);
     for (unsigned int i = 0; i < init_params->numWorkers; i++)
         uws.emplace_back(std::make_unique<nixlUcxWorker>(uc));
 
@@ -447,13 +480,6 @@ nixlUcxEngine::nixlUcxEngine (const nixlBackendInitParams* init_params)
     uw->regAmCallback(CONN_CHECK, connectionCheckAmCb, this);
     uw->regAmCallback(DISCONNECT, connectionTermAmCb, this);
     uw->regAmCallback(NOTIF_STR, notifAmCb, this);
-
-    if (init_params->enableProgTh) {
-        pthrOn = true;
-        pthrDelay = init_params->pthrDelay;
-    } else {
-        pthrOn = false;
-    }
 
     // Temp fixup
     if (getenv("NIXL_DISABLE_CUDA_ADDR_WA")) {
@@ -486,6 +512,8 @@ nixlUcxEngine::~nixlUcxEngine () {
     progressThreadStop();
     vramFiniCtx();
     free(workerAddr);
+    close(pthrStopFds[0]);
+    close(pthrStopFds[1]);
 }
 
 /****************************************
