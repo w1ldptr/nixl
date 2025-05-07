@@ -455,16 +455,17 @@ nixlUcxEngine::nixlUcxEngine (const nixlBackendInitParams* init_params)
     uc = std::make_shared<nixlUcxContext>(devs, sizeof(nixlUcxIntReq),
                                           _internalRequestInit, _internalRequestFini, NIXL_UCX_MT_WORKER,
                                           init_params->enableProgTh);
-    for (unsigned int i = 0; i < init_params->numWorkers; i++) {
-        uint64_t n_addr;
-        const auto & uw = uws.emplace_back(std::make_unique<nixlUcxWorker>(uc));
-        uw->epAddr(n_addr, workerSize);
-        workerAddr = (void*) n_addr;
+    for (unsigned int i = 0; i < init_params->numWorkers; i++)
+        uws.emplace_back(std::make_unique<nixlUcxWorker>(uc));
 
-        uw->regAmCallback(CONN_CHECK, connectionCheckAmCb, this);
-        uw->regAmCallback(DISCONNECT, connectionTermAmCb, this);
-        uw->regAmCallback(NOTIF_STR, notifAmCb, this);
-    }
+    uint64_t n_addr;
+    const auto &uw = uws.front();
+    uw->epAddr(n_addr, workerSize);
+    workerAddr = (void*) n_addr;
+
+    uw->regAmCallback(CONN_CHECK, connectionCheckAmCb, this);
+    uw->regAmCallback(DISCONNECT, connectionTermAmCb, this);
+    uw->regAmCallback(NOTIF_STR, notifAmCb, this);
 
     if (init_params->enableProgTh) {
         pthrOn = true;
