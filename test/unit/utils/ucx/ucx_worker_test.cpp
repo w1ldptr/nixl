@@ -142,11 +142,11 @@ int main()
 #endif
 
     // Write request
-    ret = w[0].write(ep[0], buffer[0], mem[0], (uint64_t) buffer[1], rkey[0], buf_size/2, req);
+    ret = ep[0].write(buffer[0], mem[0], (uint64_t) buffer[1], rkey[0], buf_size/2, req);
     completeRequest(w, std::string("WRITE"), false, ret, req);
 
     // Flush to ensure that all data is in-place
-    ret = w[0].flushEp(ep[0], req);
+    ret = ep[0].flushEp(req);
     completeRequest(w, std::string("WRITE"), true, ret, req);
 
 #ifdef USE_VRAM
@@ -177,11 +177,11 @@ int main()
 #endif
 
     // Read request
-    ret = w[0].read(ep[0], (uint64_t) buffer[1], rkey[0], buffer[0], mem[0], buf_size, req);
+    ret = ep[0].read((uint64_t) buffer[1], rkey[0], buffer[0], mem[0], buf_size, req);
     completeRequest(w, std::string("READ"), false, ret, req);
 
     // Flush to ensure that all data is in-place
-    ret = w[0].flushEp(ep[0], req);
+    ret = ep[0].flushEp(req);
     completeRequest(w, std::string("READ"), true, ret, req);
 
 #ifdef USE_VRAM
@@ -201,7 +201,7 @@ int main()
     for(i = 0; i < 2; i++) {
         ep[i].rkeyDestroy(rkey[i]);
         c[i]->memDereg(mem[i]);
-        assert(0 == w[i].disconnect(ep[i]));
+        assert(0 == ep[i].disconnect_nb());
     }
 
 
