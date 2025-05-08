@@ -237,6 +237,7 @@ class nixlUcxBackendH : public nixlBackendReqH {
 private:
     nixlUcxIntReq head;
     nixlUcxEngine &eng;
+    size_t worker_id;
 
     // Notification to be sent after completion of all requests
     struct Notif {
@@ -252,7 +253,7 @@ public:
         return notif;
     }
 
-    nixlUcxBackendH(nixlUcxEngine &eng_): eng(eng_) {}
+    nixlUcxBackendH(nixlUcxEngine &eng_, size_t worker_id_): eng(eng_), worker_id(worker_id_) {}
 
     void append(nixlUcxIntReq *req) {
         head.link(req);
@@ -266,7 +267,7 @@ public:
             return NIXL_SUCCESS;
         }
 
-        const auto &uw = eng.getWorker();
+        const auto &uw = eng.getWorker(worker_id);
         // TODO: Error log: uncompleted requests found! Cancelling ...
         while(req) {
             nixlUcxIntReq *cur = req;
@@ -294,7 +295,7 @@ public:
             return NIXL_SUCCESS;
         }
 
-        const auto &uw = eng.getWorker();
+        const auto &uw = eng.getWorker(worker_id);
         /* Go over all request updating their status */
         while(req) {
             nixl_status_t ret;
@@ -333,6 +334,10 @@ public:
 
         return out_ret;
     }
+
+    size_t getWorkerId() const {
+        return worker_id;
+    }
 };
 
 /****************************************
@@ -354,7 +359,8 @@ void nixlUcxEngine::progressFunc()
     while (!pthrStop) {
         int i;
         for(i = 0; i < noSyncIters; i++) {
-            uw->progress();
+            for (auto &uw: uws)
+                uw->progress();
         }
         notifProgress();
         // TODO: once NIXL thread infrastructure is available - move it there!!!
@@ -420,6 +426,10 @@ nixlUcxEngine::nixlUcxEngine (const nixlBackendInitParams* init_params)
     std::vector<std::string> devs; /* Empty vector */
     nixl_b_params_t* custom_params = init_params->customParams;
 
+    if (!init_params->numWorkers) {
+        this->initErr = true;
+        return;
+    }
     if (init_params->enableProgTh) {
         if (!nixlUcxContext::mtLevelIsSupproted(NIXL_UCX_MT_WORKER)) {
             this->initErr = true;
@@ -432,7 +442,10 @@ nixlUcxEngine::nixlUcxEngine (const nixlBackendInitParams* init_params)
 
     uc = std::make_shared<nixlUcxContext>(devs, sizeof(nixlUcxIntReq),
                                           _internalRequestInit, _internalRequestFini, NIXL_UCX_MT_WORKER);
-    uw = std::make_unique<nixlUcxWorker>(uc);
+    for (unsigned int i = 0; i < init_params->numWorkers; i++)
+        uws.emplace_back(std::make_unique<nixlUcxWorker>(uc));
+
+    const auto &uw = uws.front();
     workerAddr = uw->epAddr(workerSize);
 
     if (workerAddr == nullptr) {
@@ -574,8 +587,6 @@ nixlUcxEngine::connectionTermAmCb (void *arg, const void *header,
 nixl_status_t nixlUcxEngine::connect(const std::string &remote_agent) {
     struct nixl_ucx_am_hdr hdr;
     uint32_t flags = 0;
-    nixl_status_t ret;
-    nixlUcxReq req;
 
     if (remote_agent == localAgent)
         return loadRemoteConnInfo (remote_agent,
@@ -591,29 +602,33 @@ nixl_status_t nixlUcxEngine::connect(const std::string &remote_agent) {
     //agent names should never be long enough to need RNDV
     flags |= UCP_AM_SEND_FLAG_EAGER;
 
-    ret = search->second->getEp()->sendAm(CONN_CHECK,
-                                          &hdr, sizeof(struct nixl_ucx_am_hdr),
-                                          (void*) localAgent.data(), localAgent.size(),
-                                          flags, req);
-
-    if(ret < 0) {
-        return ret;
+    bool error = false;
+    nixl_status_t ret = NIXL_SUCCESS;
+    std::vector<nixlUcxReq> reqs;
+    for (size_t i = 0; i < uws.size(); i++) {
+        reqs.emplace_back();
+        ret = search->second->getEp(i)->sendAm(CONN_CHECK,
+                                               &hdr, sizeof(struct nixl_ucx_am_hdr),
+                                               (void*) localAgent.data(), localAgent.size(),
+                                               flags, reqs.back());
+        if(ret < 0) {
+            error = true;
+            break;
+        }
     }
 
     //wait for AM to send
-    while(ret == NIXL_IN_PROG){
-        ret = uw->test(req);
-    }
+    for (size_t i = 0; i < reqs.size(); i++)
+        while(ret == NIXL_IN_PROG)
+            ret = getWorker(i)->test(reqs[i]);
 
-    return NIXL_SUCCESS;
+    return error ? NIXL_ERR_BACKEND : NIXL_SUCCESS;
 }
 
 nixl_status_t nixlUcxEngine::disconnect(const std::string &remote_agent) {
 
     static struct nixl_ucx_am_hdr hdr;
     uint32_t flags = 0;
-    nixl_status_t ret;
-    nixlUcxReq req;
 
     if (remote_agent != localAgent) {
         auto search = remoteConnMap.find(remote_agent);
@@ -622,19 +637,21 @@ nixl_status_t nixlUcxEngine::disconnect(const std::string &remote_agent) {
             return NIXL_ERR_NOT_FOUND;
         }
 
-        if (search->second->getEp()->checkTxState() == NIXL_SUCCESS) {
-            hdr.op = DISCONNECT;
-            //agent names should never be long enough to need RNDV
-            flags |= UCP_AM_SEND_FLAG_EAGER;
+        nixl_status_t ret = NIXL_SUCCESS;
+        for (size_t i = 0; i < uws.size(); i++) {
+            if (search->second->getEp(i)->checkTxState() == NIXL_SUCCESS) {
+                hdr.op = DISCONNECT;
+                //agent names should never be long enough to need RNDV
+                flags |= UCP_AM_SEND_FLAG_EAGER;
 
-            ret = search->second->getEp()->sendAm(DISCONNECT,
-                                                  &hdr, sizeof(struct nixl_ucx_am_hdr),
-                                                  (void*) localAgent.data(), localAgent.size(),
-                                                  flags, req);
-
-            //don't care
-            if (ret == NIXL_IN_PROG) {
-                uw->reqRelease(req);
+                nixlUcxReq req;
+                ret = search->second->getEp(i)->sendAm(DISCONNECT,
+                                                       &hdr, sizeof(struct nixl_ucx_am_hdr),
+                                                       (void*) localAgent.data(), localAgent.size(),
+                                                       flags, req);
+                //don't care
+                if (ret == NIXL_IN_PROG)
+                    getWorker(i)->reqRelease(req);
             }
         }
     }
@@ -656,10 +673,18 @@ nixl_status_t nixlUcxEngine::loadRemoteConnInfo (const std::string &remote_agent
 
     nixlSerDes::_stringToBytes(addr.data(), remote_conn_info, size);
     std::shared_ptr<nixlUcxConnection> conn = std::make_shared<nixlUcxConnection>();
-    auto result = uw->connect(addr.data(), size);
-    if (!result.ok())
+    bool error = false;
+    for (auto &uw: uws) {
+        auto result = uw->connect(addr.data(), size);
+        if (!result.ok()) {
+            error = true;
+            break;
+        }
+        conn->eps.push_back(std::move(*result));
+    }
+
+    if (error)
         return NIXL_ERR_BACKEND;
-    conn->ep = std::move(*result);
 
     conn->remoteAgent = remote_agent;
 
@@ -726,7 +751,6 @@ nixl_status_t
 nixlUcxEngine::internalMDHelper (const nixl_blob_t &blob,
                                  const std::string &agent,
                                  nixlBackendMD* &output) {
-    nixlUcxConnection conn;
     auto md = std::make_unique<nixlUcxPublicMetadata>();
     size_t size = blob.size();
 
@@ -741,9 +765,18 @@ nixlUcxEngine::internalMDHelper (const nixl_blob_t &blob,
     std::vector<char> addr(size);
     nixlSerDes::_stringToBytes(addr.data(), blob, size);
 
-    int ret = md->conn->getEp()->rkeyImport(addr.data(), size, md->rkey);
-    if (ret) {
-        // TODO: error out. Should we indicate which desc failed or unroll everything prior
+    bool error = false;
+    for (size_t wid = 0; wid < uws.size(); wid++) {
+        nixlUcxRkey rkey;
+        error = md->conn->getEp(wid)->rkeyImport(addr.data(), size, rkey);
+        if (error)
+            // TODO: error out. Should we indicate which desc failed or unroll everything prior
+            break;
+        md->rkeys.push_back(rkey);
+    }
+    if (error) {
+        for (size_t wid = 0; wid < md->rkeys.size(); wid++)
+            md->conn->getEp(wid)->rkeyDestroy(md->rkeys[wid]);
         return NIXL_ERR_BACKEND;
     }
 
@@ -773,7 +806,8 @@ nixl_status_t nixlUcxEngine::unloadMD (nixlBackendMD* input) {
 
     nixlUcxPublicMetadata *md = (nixlUcxPublicMetadata*) input; //typecast?
 
-    md->conn->getEp()->rkeyDestroy(md->rkey);
+    for (size_t wid = 0; wid < md->rkeys.size(); wid++)
+        md->conn->getEp(wid)->rkeyDestroy(md->rkeys[wid]);
     delete md;
 
     return NIXL_SUCCESS;
@@ -808,7 +842,7 @@ nixl_status_t nixlUcxEngine::prepXfer (const nixl_xfer_op_t &operation,
                                        const nixl_opt_b_args_t* opt_args)
 {
     /* TODO: try to get from a pool first */
-    nixlUcxBackendH *intHandle = new nixlUcxBackendH(*this);
+    nixlUcxBackendH *intHandle = new nixlUcxBackendH(*this, getWorkerId());
 
     handle = (nixlBackendReqH*)intHandle;
     return NIXL_SUCCESS;
@@ -829,7 +863,7 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
     nixlUcxPrivateMetadata *lmd;
     nixlUcxPublicMetadata *rmd;
     nixlUcxReq req;
-
+    size_t workerId = intHandle->getWorkerId();
 
     if (lcnt != rcnt) {
         return NIXL_ERR_INVALID_PARAM;
@@ -850,10 +884,10 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
 
         switch (operation) {
         case NIXL_READ:
-            ret = rmd->conn->getEp()->read((uint64_t) raddr, rmd->rkey, laddr, lmd->mem, lsize, req);
+            ret = rmd->conn->getEp(workerId)->read((uint64_t) raddr, rmd->getRkey(workerId), laddr, lmd->mem, lsize, req);
             break;
         case NIXL_WRITE:
-            ret = rmd->conn->getEp()->write(laddr, lmd->mem, (uint64_t) raddr, rmd->rkey, lsize, req);
+            ret = rmd->conn->getEp(workerId)->write(laddr, lmd->mem, (uint64_t) raddr, rmd->getRkey(workerId), lsize, req);
             break;
         default:
             return NIXL_ERR_INVALID_PARAM;
@@ -869,7 +903,7 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
      * completed, which can happen after local requests completion.
      */
     rmd = (nixlUcxPublicMetadata*) remote[0].metadataP;
-    ret = rmd->conn->getEp()->flushEp(req);
+    ret = rmd->conn->getEp(workerId)->flushEp(req);
     if (_retHelper(ret, intHandle, req)) {
         return ret;
     }
@@ -877,7 +911,7 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
     ret = intHandle->status();
     if (opt_args && opt_args->hasNotif) {
         if (ret == NIXL_SUCCESS) {
-            ret = notifSendPriv(remote_agent, opt_args->notifMsg, req);
+            ret = notifSendPriv(remote_agent, opt_args->notifMsg, req, workerId);
             if (_retHelper(ret, intHandle, req)) {
                 return ret;
             }
@@ -894,12 +928,13 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
 nixl_status_t nixlUcxEngine::checkXfer (nixlBackendReqH* handle)
 {
     nixlUcxBackendH *intHandle = (nixlUcxBackendH *)handle;
+    size_t workerId = intHandle->getWorkerId();
 
     nixl_status_t status = intHandle->status();
     auto& notif = intHandle->notification();
     if (status == NIXL_SUCCESS && notif.has_value()) {
         nixlUcxReq req;
-        status = notifSendPriv(notif->agent, notif->payload, req);
+        status = notifSendPriv(notif->agent, notif->payload, req, workerId);
         notif.reset();
         if (_retHelper(status, intHandle, req)) {
             return status;
@@ -924,7 +959,10 @@ nixl_status_t nixlUcxEngine::releaseReqH(nixlBackendReqH* handle)
 
 int nixlUcxEngine::progress() {
     // TODO: add listen for connection handling if necessary
-    return uw->progress();
+    int ret = 0;
+    for (auto &uw: uws)
+        ret += uw->progress();
+    return ret;
 }
 
 /****************************************
@@ -933,7 +971,9 @@ int nixlUcxEngine::progress() {
 
 //agent will provide cached msg
 nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
-                                           const std::string &msg, nixlUcxReq &req)
+                                           const std::string &msg,
+                                           nixlUcxReq &req,
+                                           size_t worker_id)
 {
     nixlSerDes ser_des;
     // TODO - temp fix, need to have an mpool
@@ -956,10 +996,10 @@ nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
     // TODO: replace with mpool for performance
 
     auto buffer = std::make_unique<std::string>(std::move(ser_des.exportStr()));
-    ret = search->second->getEp()->sendAm(NOTIF_STR,
-                                          &hdr, sizeof(struct nixl_ucx_am_hdr),
-                                          (void*)buffer->data(), buffer->size(),
-                                          flags, req);
+    ret = search->second->getEp(worker_id)->sendAm(NOTIF_STR,
+                                                   &hdr, sizeof(struct nixl_ucx_am_hdr),
+                                                   (void*)buffer->data(), buffer->size(),
+                                                   flags, req);
 
     if (ret == NIXL_IN_PROG) {
         nixlUcxIntReq* nReq = (nixlUcxIntReq*)req;
@@ -1052,13 +1092,14 @@ nixl_status_t nixlUcxEngine::genNotif(const std::string &remote_agent, const std
 {
     nixl_status_t ret;
     nixlUcxReq req;
+    size_t wid = getWorkerId();
 
-    ret = notifSendPriv(remote_agent, msg, req);
+    ret = notifSendPriv(remote_agent, msg, req, wid);
 
     switch(ret) {
     case NIXL_IN_PROG:
         /* do not track the request */
-        uw->reqRelease(req);
+        getWorker(wid)->reqRelease(req);
     case NIXL_SUCCESS:
         break;
     default:
@@ -1068,6 +1109,10 @@ nixl_status_t nixlUcxEngine::genNotif(const std::string &remote_agent, const std
     return NIXL_SUCCESS;
 }
 
-const std::unique_ptr<nixlUcxWorker> &nixlUcxEngine::getWorker() const {
-    return uw;
+const std::unique_ptr<nixlUcxWorker> &nixlUcxEngine::getWorker(size_t worker_id) const {
+    return uws[worker_id];
+}
+
+size_t nixlUcxEngine::getWorkerId() const {
+    return std::hash<std::thread::id>{}(std::this_thread::get_id()) % uws.size();
 }
