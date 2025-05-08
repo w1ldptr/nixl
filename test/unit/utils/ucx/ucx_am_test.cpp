@@ -87,14 +87,14 @@ int main()
     vector<string> devs;
     devs.push_back("mlx5_0");
 
-    nixlUcxContext c[2] = {
-        nixlUcxContext(devs, 0, NULL, NULL, NIXL_UCX_MT_SINGLE),
-        nixlUcxContext(devs, 0, NULL, NULL, NIXL_UCX_MT_SINGLE)
+    std::shared_ptr<nixlUcxContext> c[2] = {
+        std::make_shared<nixlUcxContext>(devs, 0, nullptr, nullptr, NIXL_UCX_MT_SINGLE),
+        std::make_shared<nixlUcxContext>(devs, 0, nullptr, nullptr, NIXL_UCX_MT_SINGLE)
     };
 
     nixlUcxWorker w[2] = {
-        nixlUcxWorker(&c[0]),
-        nixlUcxWorker(&c[1])
+        nixlUcxWorker(c[0]),
+        nixlUcxWorker(c[1])
     };
     nixlUcxEp ep[2];
     nixlUcxReq req;
@@ -137,7 +137,7 @@ int main()
     w[0].progress();
 
     /* Test first callback */
-    ret = w[1].sendAm(ep[1], check_cb_id, &hdr, sizeof(struct sample_header), (void*) &buffer, sizeof(buffer), 0, req);
+    ret = ep[1].sendAm(check_cb_id, &hdr, sizeof(struct sample_header), (void*) &buffer, sizeof(buffer), 0, req);
     assert (ret == 0);
 
     while (ret == 0){
@@ -151,7 +151,7 @@ int main()
     uint32_t flags = 0;
     flags |= UCP_AM_SEND_FLAG_RNDV;
 
-    ret = w[1].sendAm(ep[1], rndv_cb_id, &hdr, sizeof(struct sample_header), big_buffer, 8192, flags, req);
+    ret =  ep[1].sendAm(rndv_cb_id, &hdr, sizeof(struct sample_header), big_buffer, 8192, flags, req);
     assert (ret == 0);
 
     while (ret == 0){
@@ -166,7 +166,7 @@ int main()
 
     /* Test shutdown */
     for (i = 0; i < 2; i++) {
-        assert (0 == w[i].disconnect(ep[i]));
+        assert (0 == ep[i].disconnect_nb());
     }
 
     free (big_buffer);

@@ -242,13 +242,11 @@ static void _internalRequestReset(nixlUcxIntReq *req) {
 class nixlUcxBackendH : public nixlBackendReqH {
 private:
     nixlUcxIntReq head;
-    nixlUcxWorker* uw;
+    nixlUcxEngine &eng;
 
 public:
 
-    nixlUcxBackendH(nixlUcxWorker* _uw){
-        uw = _uw;
-    }
+    nixlUcxBackendH(nixlUcxEngine &eng_): eng(eng_) {}
 
     void append(nixlUcxIntReq *req) {
         head.link(req);
@@ -262,6 +260,7 @@ public:
             return NIXL_SUCCESS;
         }
 
+        const auto &uw = eng.getWorker();
         // TODO: Error log: uncompleted requests found! Cancelling ...
         while(req) {
             nixlUcxIntReq *cur = req;
@@ -289,6 +288,7 @@ public:
             return NIXL_SUCCESS;
         }
 
+        const auto &uw = eng.getWorker();
         /* Go over all request updating their status */
         while(req) {
             nixl_status_t ret;
@@ -425,9 +425,9 @@ nixlUcxEngine::nixlUcxEngine (const nixlBackendInitParams* init_params)
     if (custom_params->count("device_list")!=0)
         devs = str_split((*custom_params)["device_list"], ", ");
 
-    uc = new nixlUcxContext(devs, sizeof(nixlUcxIntReq),
-                           _internalRequestInit, _internalRequestFini, NIXL_UCX_MT_WORKER);
-    uw = new nixlUcxWorker(uc);
+    uc = std::make_shared<nixlUcxContext>(devs, sizeof(nixlUcxIntReq),
+                                          _internalRequestInit, _internalRequestFini, NIXL_UCX_MT_WORKER);
+    uw = std::make_unique<nixlUcxWorker>(uc);
     uw->epAddr(n_addr, workerSize);
     workerAddr = (void*) n_addr;
 
@@ -472,8 +472,6 @@ nixlUcxEngine::~nixlUcxEngine () {
 
     progressThreadStop();
     vramFiniCtx();
-    delete uw;
-    delete uc;
     free(workerAddr);
 }
 
@@ -498,9 +496,8 @@ nixl_status_t nixlUcxEngine::endConn(const std::string &remote_agent) {
 
     nixlUcxConnection &conn = remoteConnMap[remote_agent];
 
-    if(uw->disconnect_nb(conn.ep) < 0) {
+    if(conn.getEp().disconnect_nb() < 0)
         return NIXL_ERR_BACKEND;
-    }
 
     //thread safety?
     remoteConnMap.erase(remote_agent);
@@ -596,10 +593,10 @@ nixl_status_t nixlUcxEngine::connect(const std::string &remote_agent) {
     //agent names should never be long enough to need RNDV
     flags |= UCP_AM_SEND_FLAG_EAGER;
 
-    ret = uw->sendAm(conn.ep, CONN_CHECK,
-                     &hdr, sizeof(struct nixl_ucx_am_hdr),
-                     (void*) localAgent.data(), localAgent.size(),
-                     flags, req);
+    ret = conn.getEp().sendAm(CONN_CHECK,
+                              &hdr, sizeof(struct nixl_ucx_am_hdr),
+                              (void*) localAgent.data(), localAgent.size(),
+                              flags, req);
 
     if(ret < 0) {
         return ret;
@@ -633,10 +630,10 @@ nixl_status_t nixlUcxEngine::disconnect(const std::string &remote_agent) {
         //agent names should never be long enough to need RNDV
         flags |= UCP_AM_SEND_FLAG_EAGER;
 
-        ret = uw->sendAm(conn.ep, DISCONNECT,
-                        &hdr, sizeof(struct nixl_ucx_am_hdr),
-                        (void*) localAgent.data(), localAgent.size(),
-                        flags, req);
+        ret = conn.getEp().sendAm(DISCONNECT,
+                                  &hdr, sizeof(struct nixl_ucx_am_hdr),
+                                  (void*) localAgent.data(), localAgent.size(),
+                                  flags, req);
 
         //don't care
         if(ret == NIXL_IN_PROG){
@@ -702,11 +699,11 @@ nixl_status_t nixlUcxEngine::registerMem (const nixlBlobDesc &mem,
     }
 
     // TODO: Add nixl_mem check?
-    ret = uw->memReg((void*) mem.addr, mem.len, priv->mem);
+    ret = uc->memReg((void*) mem.addr, mem.len, priv->mem);
     if (ret) {
         return NIXL_ERR_BACKEND;
     }
-    ret = uw->packRkey(priv->mem, rkey_addr, rkey_size);
+    ret = uc->packRkey(priv->mem, rkey_addr, rkey_size);
     if (ret) {
         return NIXL_ERR_BACKEND;
     }
@@ -721,7 +718,7 @@ nixl_status_t nixlUcxEngine::registerMem (const nixlBlobDesc &mem,
 nixl_status_t nixlUcxEngine::deregisterMem (nixlBackendMD* meta)
 {
     nixlUcxPrivateMetadata *priv = (nixlUcxPrivateMetadata*) meta;
-    uw->memDereg(priv->mem);
+    uc->memDereg(priv->mem);
     delete priv;
     return NIXL_SUCCESS;
 }
@@ -741,7 +738,7 @@ nixlUcxEngine::internalMDHelper (const nixl_blob_t &blob,
                                  nixlBackendMD* &output) {
     nixlUcxConnection conn;
     nixlUcxPublicMetadata *md = new nixlUcxPublicMetadata;
-     size_t size = blob.size();
+    size_t size = blob.size();
 
     auto search = remoteConnMap.find(agent);
 
@@ -754,17 +751,15 @@ nixlUcxEngine::internalMDHelper (const nixl_blob_t &blob,
     //directly copy underlying conn struct
     md->conn = conn;
 
-    char *addr = new char[size];
-    nixlSerDes::_stringToBytes(addr, blob, size);
+    std::vector<char> addr(size);
+    nixlSerDes::_stringToBytes(addr.data(), blob, size);
 
-    int ret = uw->rkeyImport(conn.ep, addr, size, md->rkey);
+    int ret = md->conn.getEp().rkeyImport(addr.data(), size, md->rkey);
     if (ret) {
         // TODO: error out. Should we indicate which desc failed or unroll everything prior
         return NIXL_ERR_BACKEND;
     }
     output = (nixlBackendMD*) md;
-
-    delete[] addr;
 
     return NIXL_SUCCESS;
 }
@@ -790,7 +785,7 @@ nixl_status_t nixlUcxEngine::unloadMD (nixlBackendMD* input) {
 
     nixlUcxPublicMetadata *md = (nixlUcxPublicMetadata*) input; //typecast?
 
-    uw->rkeyDestroy(md->rkey);
+    md->conn.getEp().rkeyDestroy(md->rkey);
     delete md;
 
     return NIXL_SUCCESS;
@@ -825,7 +820,7 @@ nixl_status_t nixlUcxEngine::prepXfer (const nixl_xfer_op_t &operation,
                                        const nixl_opt_b_args_t* opt_args)
 {
     /* TODO: try to get from a pool first */
-    nixlUcxBackendH *intHandle = new nixlUcxBackendH(uw);
+    nixlUcxBackendH *intHandle = new nixlUcxBackendH(*this);
 
     handle = (nixlBackendReqH*)intHandle;
     return NIXL_SUCCESS;
@@ -869,10 +864,10 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
 
         switch (operation) {
         case NIXL_READ:
-            ret = uw->read(rmd->conn.ep, (uint64_t) raddr, rmd->rkey, laddr, lmd->mem, lsize, req);
+            ret = rmd->conn.getEp().read((uint64_t) raddr, rmd->rkey, laddr, lmd->mem, lsize, req);
             break;
         case NIXL_WRITE:
-            ret = uw->write(rmd->conn.ep, laddr, lmd->mem, (uint64_t) raddr, rmd->rkey, lsize, req);
+            ret = rmd->conn.getEp().write(laddr, lmd->mem, (uint64_t) raddr, rmd->rkey, lsize, req);
             break;
         default:
             return NIXL_ERR_INVALID_PARAM;
@@ -884,7 +879,7 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
     }
 
     rmd = (nixlUcxPublicMetadata*) remote[0].metadataP;
-    ret = uw->flushEp(rmd->conn.ep, req);
+    ret = rmd->conn.getEp().flushEp(req);
     if (_retHelper(ret, intHandle, req)) {
         return ret;
     }
@@ -955,10 +950,10 @@ nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
     // TODO: replace with mpool for performance
     ser_msg = new std::string(ser_des.exportStr());
 
-    ret = uw->sendAm(conn.ep, NOTIF_STR,
-                     &hdr, sizeof(struct nixl_ucx_am_hdr),
-                     (void*) ser_msg->data(), ser_msg->size(),
-                     flags, req);
+    ret = conn.getEp().sendAm(NOTIF_STR,
+                              &hdr, sizeof(struct nixl_ucx_am_hdr),
+                              (void*) ser_msg->data(), ser_msg->size(),
+                              flags, req);
 
     if (ret == NIXL_IN_PROG) {
         nixlUcxIntReq* nReq = (nixlUcxIntReq*)req;
@@ -1067,4 +1062,8 @@ nixl_status_t nixlUcxEngine::genNotif(const std::string &remote_agent, const std
         return ret;
     }
     return NIXL_SUCCESS;
+}
+
+const std::unique_ptr<nixlUcxWorker> &nixlUcxEngine::getWorker() const {
+    return uw;
 }

@@ -24,6 +24,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <memory>
 
 #include "nixl.h"
 #include "backend/backend_engine.h"
@@ -47,7 +48,9 @@ class nixlUcxConnection : public nixlBackendConnMD {
         volatile bool connected;
 
     public:
-        // Extra information required for UCX connections
+        nixlUcxEp &getEp() {
+            return ep;
+        }
 
     friend class nixlUcxEngine;
 };
@@ -96,8 +99,8 @@ class nixlUcxEngine : public nixlBackendEngine {
     private:
 
         /* UCX data */
-        nixlUcxContext* uc;
-        nixlUcxWorker* uw;
+        std::shared_ptr<nixlUcxContext> uc;
+        std::unique_ptr<nixlUcxWorker> uw;
         void* workerAddr;
         size_t workerSize;
 
@@ -229,6 +232,8 @@ class nixlUcxEngine : public nixlBackendEngine {
         //public function for UCX worker to mark connections as connected
         nixl_status_t checkConn(const std::string &remote_agent);
         nixl_status_t endConn(const std::string &remote_agent);
+
+        const std::unique_ptr<nixlUcxWorker> &getWorker() const;
 };
 
 #endif

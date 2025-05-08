@@ -85,14 +85,14 @@ int main()
     // TODO: pass dev name for testing
     // in CI it would be goot to test both SHM and IB
     //devs.push_back("mlx5_0");
-    nixlUcxContext c[2] = {
-        nixlUcxContext(devs, sizeof(requestData), nixlUcxRequestInit, NULL, NIXL_UCX_MT_SINGLE),
-        nixlUcxContext(devs, sizeof(requestData), nixlUcxRequestInit, NULL, NIXL_UCX_MT_SINGLE)
+    std::shared_ptr<nixlUcxContext> c[2] = {
+        std::make_shared<nixlUcxContext>(devs, sizeof(requestData), nixlUcxRequestInit, nullptr, NIXL_UCX_MT_SINGLE),
+        std::make_shared<nixlUcxContext>(devs, sizeof(requestData), nixlUcxRequestInit, nullptr, NIXL_UCX_MT_SINGLE)
     };
 
     nixlUcxWorker w[2] = {
-        nixlUcxWorker(&c[0]),
-        nixlUcxWorker(&c[1])
+        nixlUcxWorker(c[0]),
+        nixlUcxWorker(c[1])
     };
     nixlUcxEp ep[2];
     nixlUcxMem mem[2];
@@ -123,9 +123,9 @@ int main()
         assert(0 == w[i].epAddr(addr, size));
         assert(0 == w[!i].connect((void*) addr, size, ep[!i]));
         free((void*) addr);
-        assert(0 == w[i].memReg(buffer[i], buf_size, mem[i]));
-        assert(0 == w[i].packRkey(mem[i], addr, size));
-        assert(0 == w[!i].rkeyImport(ep[!i], (void*) addr, size, rkey[!i]));
+        assert(0 == c[i]->memReg(buffer[i], buf_size, mem[i]));
+        assert(0 == c[i]->packRkey(mem[i], addr, size));
+        assert(0 == ep[!i].rkeyImport((void*) addr, size, rkey[!i]));
         free((void*) addr);
     }
 
@@ -142,11 +142,11 @@ int main()
 #endif
 
     // Write request
-    ret = w[0].write(ep[0], buffer[0], mem[0], (uint64_t) buffer[1], rkey[0], buf_size/2, req);
+    ret = ep[0].write(buffer[0], mem[0], (uint64_t) buffer[1], rkey[0], buf_size/2, req);
     completeRequest(w, std::string("WRITE"), false, ret, req);
 
     // Flush to ensure that all data is in-place
-    ret = w[0].flushEp(ep[0], req);
+    ret = ep[0].flushEp(req);
     completeRequest(w, std::string("WRITE"), true, ret, req);
 
 #ifdef USE_VRAM
@@ -177,11 +177,11 @@ int main()
 #endif
 
     // Read request
-    ret = w[0].read(ep[0], (uint64_t) buffer[1], rkey[0], buffer[0], mem[0], buf_size, req);
+    ret = ep[0].read((uint64_t) buffer[1], rkey[0], buffer[0], mem[0], buf_size, req);
     completeRequest(w, std::string("READ"), false, ret, req);
 
     // Flush to ensure that all data is in-place
-    ret = w[0].flushEp(ep[0], req);
+    ret = ep[0].flushEp(req);
     completeRequest(w, std::string("READ"), true, ret, req);
 
 #ifdef USE_VRAM
@@ -199,9 +199,9 @@ int main()
 
     /* Test shutdown */
     for(i = 0; i < 2; i++) {
-        w[i].rkeyDestroy(rkey[i]);
-        w[i].memDereg(mem[i]);
-        assert(0 == w[i].disconnect(ep[i]));
+        ep[i].rkeyDestroy(rkey[i]);
+        c[i]->memDereg(mem[i]);
+        assert(0 == ep[i].disconnect_nb());
     }
 
 
