@@ -480,10 +480,7 @@ nixlUcxEngine::~nixlUcxEngine () {
 *****************************************/
 
 nixl_status_t nixlUcxEngine::checkConn(const std::string &remote_agent) {
-     if(remoteConnMap.find(remote_agent) == remoteConnMap.end()) {
-        return NIXL_ERR_NOT_FOUND;
-    }
-    return NIXL_SUCCESS;
+    return remoteConnMap.count(remote_agent) ? NIXL_SUCCESS : NIXL_ERR_NOT_FOUND;
 }
 
 nixl_status_t nixlUcxEngine::endConn(const std::string &remote_agent) {
@@ -494,13 +491,11 @@ nixl_status_t nixlUcxEngine::endConn(const std::string &remote_agent) {
         return NIXL_ERR_NOT_FOUND;
     }
 
-    nixlUcxConnection &conn = remoteConnMap[remote_agent];
-
-    if(conn.getEp().disconnect_nb() < 0)
+    if(search->second.getEp().disconnect_nb() < 0)
         return NIXL_ERR_BACKEND;
 
     //thread safety?
-    remoteConnMap.erase(remote_agent);
+    remoteConnMap.erase(search);
 
     return NIXL_SUCCESS;
 }
@@ -587,16 +582,14 @@ nixl_status_t nixlUcxEngine::connect(const std::string &remote_agent) {
         return NIXL_ERR_NOT_FOUND;
     }
 
-    nixlUcxConnection &conn = remoteConnMap[remote_agent];
-
     hdr.op = CONN_CHECK;
     //agent names should never be long enough to need RNDV
     flags |= UCP_AM_SEND_FLAG_EAGER;
 
-    ret = conn.getEp().sendAm(CONN_CHECK,
-                              &hdr, sizeof(struct nixl_ucx_am_hdr),
-                              (void*) localAgent.data(), localAgent.size(),
-                              flags, req);
+    ret = search->second.getEp().sendAm(CONN_CHECK,
+                                        &hdr, sizeof(struct nixl_ucx_am_hdr),
+                                        (void*) localAgent.data(), localAgent.size(),
+                                        flags, req);
 
     if(ret < 0) {
         return ret;
@@ -624,16 +617,14 @@ nixl_status_t nixlUcxEngine::disconnect(const std::string &remote_agent) {
             return NIXL_ERR_NOT_FOUND;
         }
 
-        nixlUcxConnection &conn = remoteConnMap[remote_agent];
-
         hdr.op = DISCONNECT;
         //agent names should never be long enough to need RNDV
         flags |= UCP_AM_SEND_FLAG_EAGER;
 
-        ret = conn.getEp().sendAm(DISCONNECT,
-                                  &hdr, sizeof(struct nixl_ucx_am_hdr),
-                                  (void*) localAgent.data(), localAgent.size(),
-                                  flags, req);
+        ret = search->second.getEp().sendAm(DISCONNECT,
+                                            &hdr, sizeof(struct nixl_ucx_am_hdr),
+                                            (void*) localAgent.data(), localAgent.size(),
+                                            flags, req);
 
         //don't care
         if(ret == NIXL_IN_PROG){
@@ -655,7 +646,7 @@ nixl_status_t nixlUcxEngine::loadRemoteConnInfo (const std::string &remote_agent
     //TODO: eventually std::byte?
     char* addr = new char[size];
 
-    if(remoteConnMap.find(remote_agent) != remoteConnMap.end()) {
+    if(remoteConnMap.count(remote_agent)) {
         return NIXL_ERR_INVALID_PARAM;
     }
 
@@ -668,7 +659,7 @@ nixl_status_t nixlUcxEngine::loadRemoteConnInfo (const std::string &remote_agent
     conn.remoteAgent = remote_agent;
     conn.connected = false;
 
-    remoteConnMap[remote_agent] = conn;
+    remoteConnMap.insert({remote_agent, conn});
 
     delete[] addr;
 
@@ -746,10 +737,7 @@ nixlUcxEngine::internalMDHelper (const nixl_blob_t &blob,
         //TODO: err: remote connection not found
         return NIXL_ERR_NOT_FOUND;
     }
-    conn = (nixlUcxConnection) search->second;
-
-    //directly copy underlying conn struct
-    md->conn = conn;
+    md->conn = search->second;
 
     std::vector<char> addr(size);
     nixlSerDes::_stringToBytes(addr.data(), blob, size);
@@ -927,7 +915,6 @@ nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
 {
     nixlSerDes ser_des;
     std::string *ser_msg;
-    nixlUcxConnection conn;
     // TODO - temp fix, need to have an mpool
     static struct nixl_ucx_am_hdr hdr;
     uint32_t flags = 0;
@@ -940,8 +927,6 @@ nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
         return NIXL_ERR_NOT_FOUND;
     }
 
-    conn = remoteConnMap[remote_agent];
-
     hdr.op = NOTIF_STR;
     flags |= UCP_AM_SEND_FLAG_EAGER;
 
@@ -950,10 +935,10 @@ nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
     // TODO: replace with mpool for performance
     ser_msg = new std::string(ser_des.exportStr());
 
-    ret = conn.getEp().sendAm(NOTIF_STR,
-                              &hdr, sizeof(struct nixl_ucx_am_hdr),
-                              (void*) ser_msg->data(), ser_msg->size(),
-                              flags, req);
+    ret = search->second.getEp().sendAm(NOTIF_STR,
+                                        &hdr, sizeof(struct nixl_ucx_am_hdr),
+                                        (void*) ser_msg->data(), ser_msg->size(),
+                                        flags, req);
 
     if (ret == NIXL_IN_PROG) {
         nixlUcxIntReq* nReq = (nixlUcxIntReq*)req;
