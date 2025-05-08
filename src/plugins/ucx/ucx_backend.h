@@ -48,7 +48,7 @@ class nixlUcxConnection : public nixlBackendConnMD {
         volatile bool connected;
 
     public:
-        std::unique_ptr<nixlUcxEp> &getEp(size_t ep_id) {
+        const std::unique_ptr<nixlUcxEp> &getEp(size_t ep_id) const {
             return eps[ep_id];
         }
 
@@ -82,7 +82,7 @@ class nixlUcxPublicMetadata : public nixlBackendMD {
     private:
         std::vector<nixlUcxRkey> rkeys;
     public:
-        nixlUcxConnection conn;
+        std::shared_ptr<nixlUcxConnection> conn;
 
         nixlUcxPublicMetadata() : nixlBackendMD(false) {}
 
@@ -131,7 +131,7 @@ class nixlUcxEngine : public nixlBackendEngine {
         notif_list_t notifPthrPriv, notifPthr;
 
         // Map of agent name to saved nixlUcxConnection info
-        std::unordered_map<std::string, nixlUcxConnection,
+        std::unordered_map<std::string, std::shared_ptr<nixlUcxConnection>,
                            std::hash<std::string>, strEqual> remoteConnMap;
 
 
