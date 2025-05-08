@@ -18,10 +18,29 @@
 #include <string>
 #include <cstring>
 #include <cassert>
+#include <stdexcept>
 
 #include "ucx_utils.h"
+#include "../common/nixl_log.h"
 
 using namespace std;
+
+nixlUcxEp::nixlUcxEp(const ucp_ep_params_t &ep_params, ucp_worker_h worker)
+{
+    ucs_status_t status = ucp_ep_create(worker, &ep_params, &eph);
+    if (status != UCS_OK) {
+        /* TODO: proper cleanup */
+        /* TODO:  MSW_NET_ERROR(priv->net, "!!! failed to create endpoint to remote %d (%s)\n",
+                      status, ucs_status_string(status)); */
+        throw std::runtime_error("failed to create ep");
+    }
+}
+
+ nixlUcxEp::~nixlUcxEp()
+ {
+     if (disconnect_nb())
+         NIXL_ERROR << "Failed to disconnect ep" << std::endl;
+ }
 
 /* ===========================================
  * EP management
@@ -342,9 +361,7 @@ static void err_cb(void *arg, ucp_ep_h ep, ucs_status_t status)
 
 absl::StatusOr<std::unique_ptr<nixlUcxEp>> nixlUcxWorker::connect(void* addr, size_t size)
 {
-    std::unique_ptr<nixlUcxEp> ep = std::make_unique<nixlUcxEp>();
     ucp_ep_params_t ep_params;
-    ucs_status_t status;
 
     //ep.uw = this;
 
@@ -357,15 +374,12 @@ absl::StatusOr<std::unique_ptr<nixlUcxEp>> nixlUcxWorker::connect(void* addr, si
     ep_params.err_handler.cb = err_cb;
     ep_params.address = (ucp_address_t*) addr;
 
-    status = ucp_ep_create(worker, &ep_params, &ep->eph);
-    if (status != UCS_OK) {
-        /* TODO: proper cleanup */
-        /* TODO:  MSW_NET_ERROR(priv->net, "!!! failed to create endpoint to remote %d (%s)\n",
-                      status, ucs_status_string(status)); */
-        return absl::UnavailableError("failed to create ep");
+    std::unique_ptr<nixlUcxEp> ep;
+    try {
+        return std::make_unique<nixlUcxEp>(ep_params, worker);
+    } catch (const std::exception &e) {
+        return absl::UnavailableError(e.what());
     }
-
-    return ep;
 }
 
 /* ===========================================

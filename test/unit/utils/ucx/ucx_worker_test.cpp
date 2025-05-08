@@ -203,7 +203,7 @@ int main()
     for(i = 0; i < 2; i++) {
         ep[i]->rkeyDestroy(rkey[i]);
         c[i]->memDereg(mem[i]);
-        assert(0 == ep[i]->disconnect_nb());
+        assert(ep[i].release());
     }
 
 

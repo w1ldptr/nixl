@@ -42,9 +42,13 @@ class nixlUcxEp {
 private:
     ucp_ep_h  eph;
 
-public:
     /* Connection */
     int disconnect_nb();
+public:
+    nixlUcxEp(const ucp_ep_params_t &ep_params, ucp_worker_h worker);
+    ~nixlUcxEp();
+    nixlUcxEp(const nixlUcxEp&) = delete;
+    nixlUcxEp& operator=(const nixlUcxEp&) = delete;
 
     /* Rkey */
     int rkeyImport(void* addr, size_t size, nixlUcxRkey &rkey);

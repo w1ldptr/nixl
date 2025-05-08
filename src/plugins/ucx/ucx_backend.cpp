@@ -532,14 +532,10 @@ nixl_status_t nixlUcxEngine::endConn(const std::string &remote_agent) {
         return NIXL_ERR_NOT_FOUND;
     }
 
-    bool error = false;
-    for (size_t i = 0; i < search->second->eps.size(); i++)
-        if(search->second->getEp(i)->disconnect_nb() < 0)
-            error = true;
     //thread safety?
     remoteConnMap.erase(search);
 
-    return error ? NIXL_ERR_BACKEND : NIXL_SUCCESS;
+    return NIXL_SUCCESS;
 }
 
 nixl_status_t nixlUcxEngine::getConnInfo(std::string &str) const {
@@ -689,7 +685,7 @@ nixl_status_t nixlUcxEngine::loadRemoteConnInfo (const std::string &remote_agent
     size_t size = remote_conn_info.size();
     std::vector<char> addr(size);
 
-    if(remoteConnMap.find(remote_agent) != remoteConnMap.end()) {
+    if(remoteConnMap.count(remote_agent)) {
         return NIXL_ERR_INVALID_PARAM;
     }
 
@@ -705,11 +701,8 @@ nixl_status_t nixlUcxEngine::loadRemoteConnInfo (const std::string &remote_agent
         conn->eps.push_back(std::move(*result));
     }
 
-    if (error) {
-        for (size_t i = 0; i < conn->eps.size(); i++)
-            conn->getEp(i)->disconnect_nb();
+    if (error)
         return NIXL_ERR_BACKEND;
-    }
 
     conn->remoteAgent = remote_agent;
     conn->connected = false;

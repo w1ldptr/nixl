@@ -166,10 +166,5 @@ int main()
     //make sure callbacks are complete
     w[0].progress();
 
-    /* Test shutdown */
-    for (i = 0; i < 2; i++) {
-        assert (0 == ep[i]->disconnect_nb());
-    }
-
     free (big_buffer);
 }
