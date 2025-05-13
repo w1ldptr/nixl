@@ -43,6 +43,8 @@ RUN apt-get update -y && \
     flex \
     build-essential
 
+RUN apt-get install --reinstall -y libibverbs-dev
+
 WORKDIR /workspace
 RUN git clone https://github.com/etcd-cpp-apiv3/etcd-cpp-apiv3.git &&\
 	cd etcd-cpp-apiv3 && mkdir build && cd build && \
@@ -99,6 +101,18 @@ RUN cd /usr/local/src && \
          --enable-mt &&              \
      make -j &&                      \
      make -j install-strip &&        \
+     ldconfig
+
+ENV PATH=${PATH}:/usr/local/go/bin
+RUN cd /usr/local/src && \
+     git clone https://github.com/kvcache-ai/Mooncake.git && \
+     cd Mooncake && 			     \
+     bash dependencies.sh &&	     \
+     mkdir build && \
+     cd build && \
+     cmake .. -DBUILD_SHARED_LIBS=ON &&  \
+     make VERBOSE=1 -j &&                      \
+     make -j install &&        \
      ldconfig
 
 RUN rm -rf build && \
