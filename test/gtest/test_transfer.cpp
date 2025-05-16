@@ -41,12 +41,12 @@ public:
     {
     }
 
-    operator uintptr_t() const
+    uintptr_t data() const
     {
         return reinterpret_cast<uintptr_t>(buffer_.data());
     }
 
-    size_t getSize() const
+    size_t size() const
     {
         return buffer_.size();
     }
@@ -93,7 +93,7 @@ protected:
     {
         nixlDescList<Desc> desc_list(mem_type);
         for (const auto &buffer : buffers) {
-            desc_list.addDesc(Desc(buffer, buffer.getSize(), DEV_ID));
+            desc_list.addDesc(Desc(buffer.data(), buffer.size(), DEV_ID));
         }
         return desc_list;
     }
