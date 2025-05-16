@@ -30,50 +30,29 @@
 
 namespace gtest {
 
-class MemBuffer : std::shared_ptr<void> {
+template<nixl_mem_t MemType>
+class MemBuffer;
+
+template<>
+class MemBuffer<DRAM_SEG> {
 public:
-    MemBuffer(size_t size, nixl_mem_t mem_type = DRAM_SEG) :
-        std::shared_ptr<void>(allocate(size, mem_type),
-                              [&mem_type](void *ptr) {
-                                  release(ptr, mem_type);
-                              }),
-        size(size)
+    MemBuffer(size_t size) :
+        buffer_(size)
     {
     }
 
-    operator uintptr_t() const
+    uintptr_t data() const
     {
-        return reinterpret_cast<uintptr_t>(get());
+        return reinterpret_cast<uintptr_t>(buffer_.data());
     }
 
-    size_t getSize() const
+    size_t size() const
     {
-        return size;
+        return buffer_.size();
     }
 
 private:
-    static void *allocate(size_t size, nixl_mem_t mem_type)
-    {
-        switch (mem_type) {
-        case DRAM_SEG:
-            return malloc(size);
-        default:
-            return nullptr; // TODO
-        }
-    }
-
-    static void release(void *ptr, nixl_mem_t mem_type)
-    {
-        switch (mem_type) {
-        case DRAM_SEG:
-            free(ptr);
-            break;
-        default:
-            return; // TODO
-        }
-    }
-
-    const size_t size;
+    std::vector<uint8_t> buffer_;
 };
 
 class TestTransfer : public testing::TestWithParam<std::string> {
@@ -108,21 +87,21 @@ protected:
         return GetParam();
     }
 
-    template<typename Desc>
+    template<typename Desc, nixl_mem_t MemType>
     nixlDescList<Desc>
-    makeDescList(const std::vector<MemBuffer> &buffers, nixl_mem_t mem_type)
+    makeDescList(const std::vector<MemBuffer<MemType>> &buffers)
     {
-        nixlDescList<Desc> desc_list(mem_type);
+        nixlDescList<Desc> desc_list(MemType);
         for (const auto &buffer : buffers) {
-            desc_list.addDesc(Desc(buffer, buffer.getSize(), DEV_ID));
+            desc_list.addDesc(Desc(buffer.data(), buffer.size(), DEV_ID));
         }
         return desc_list;
     }
 
-    void registerMem(nixlAgent &agent, const std::vector<MemBuffer> &buffers,
-                     nixl_mem_t mem_type)
+    template<nixl_mem_t MemType>
+    void registerMem(nixlAgent &agent, const std::vector<MemBuffer<MemType>> &buffers)
     {
-        auto reg_list = makeDescList<nixlBlobDesc>(buffers, mem_type);
+        auto reg_list = makeDescList<nixlBlobDesc, MemType>(buffers);
         agent.registerMem(reg_list);
     }
 
@@ -181,19 +160,20 @@ protected:
         EXPECT_EQ(notif_list.front(), NOTIF_MSG);
     }
 
+    template<nixl_mem_t SrcMemType, nixl_mem_t DstMemType>
     void doTransfer(nixlAgent &from, const std::string &from_name,
                     nixlAgent &to, const std::string &to_name, size_t size,
-                    size_t count, size_t repeat, nixl_mem_t src_mem_type,
-                    nixl_mem_t dst_mem_type)
+                    size_t count, size_t repeat)
     {
-        std::vector<MemBuffer> src_buffers, dst_buffers;
+        std::vector<MemBuffer<SrcMemType>> src_buffers;
+        std::vector<MemBuffer<DstMemType>> dst_buffers;
         for (size_t i = 0; i < count; i++) {
-            src_buffers.emplace_back(size, src_mem_type);
-            dst_buffers.emplace_back(size, dst_mem_type);
+            src_buffers.emplace_back(size);
+            dst_buffers.emplace_back(size);
         }
 
-        registerMem(from, src_buffers, src_mem_type);
-        registerMem(to, dst_buffers, dst_mem_type);
+        registerMem(from, src_buffers);
+        registerMem(to, dst_buffers);
         exchangeMD();
 
         nixl_opt_args_t extra_params;
@@ -203,8 +183,8 @@ protected:
         nixlXferReqH *xfer_req = nullptr;
         nixl_status_t status   = from.createXferReq(
                 NIXL_WRITE,
-                makeDescList<nixlBasicDesc>(src_buffers, src_mem_type),
-                makeDescList<nixlBasicDesc>(dst_buffers, dst_mem_type), to_name,
+                makeDescList<nixlBasicDesc, SrcMemType>(src_buffers),
+                makeDescList<nixlBasicDesc, DstMemType>(dst_buffers), to_name,
                 xfer_req, &extra_params);
         ASSERT_EQ(status, NIXL_SUCCESS);
         EXPECT_NE(xfer_req, nullptr);
@@ -262,8 +242,8 @@ TEST_P(TestTransfer, RandomSizes)
     };
 
     for (const auto &[size, count, repeat] : test_cases) {
-        doTransfer(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
-                   size, count, repeat, DRAM_SEG, DRAM_SEG);
+        doTransfer<DRAM_SEG, DRAM_SEG>(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
+                   size, count, repeat);
     }
 }
 
