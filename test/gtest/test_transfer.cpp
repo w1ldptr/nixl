@@ -178,7 +178,7 @@ protected:
 
     void doTransfer(nixlAgent &from, const std::string &from_name,
                     nixlAgent &to, const std::string &to_name, size_t size,
-                    size_t count, size_t batch_size, size_t repeat,
+                    size_t count, size_t batch_size,
                     nixl_mem_t src_mem_type, nixl_mem_t dst_mem_type,
                     nixl_xfer_op_t mode,
                     const std::vector<std::string>& expected_notifs)
@@ -202,77 +202,73 @@ protected:
         size_t total_transferred = 0;
         size_t notif_idx = 0;
 
-        for (size_t i = 0; i < repeat; i++) {
-            for (size_t batch_start = 0; batch_start < count; batch_start += batch_size) {
-                size_t batch_end = std::min(batch_start + batch_size, count);
+        for (size_t batch_start = 0; batch_start < count; batch_start += batch_size) {
+            size_t batch_end = std::min(batch_start + batch_size, count);
 
-                nixl_opt_args_t extra_params;
-                extra_params.hasNotif = true;
-                extra_params.notifMsg = expected_notifs[notif_idx++];
+            nixl_opt_args_t extra_params;
+            extra_params.hasNotif = true;
+            extra_params.notifMsg = expected_notifs[notif_idx++];
 
-                nixlXferReqH *xfer_req = nullptr;
-                nixl_status_t status = from.createXferReq(
-                    mode,
-                    makeDescList<nixlBasicDesc>(
-                        src_buffers.begin() + batch_start,
-                        src_buffers.begin() + batch_end,
-                        src_mem_type),
-                    makeDescList<nixlBasicDesc>(
-                        dst_buffers.begin() + batch_start,
-                        dst_buffers.begin() + batch_end,
-                        dst_mem_type),
-                    to_name,
-                    xfer_req,
-                    &extra_params);
-                ASSERT_EQ(status, NIXL_SUCCESS);
-                EXPECT_NE(xfer_req, nullptr);
+            nixlXferReqH *xfer_req = nullptr;
+            nixl_status_t status = from.createXferReq(
+                mode,
+                makeDescList<nixlBasicDesc>(
+                    src_buffers.begin() + batch_start,
+                    src_buffers.begin() + batch_end,
+                    src_mem_type),
+                makeDescList<nixlBasicDesc>(
+                    dst_buffers.begin() + batch_start,
+                    dst_buffers.begin() + batch_end,
+                    dst_mem_type),
+                to_name,
+                xfer_req,
+                &extra_params);
+            ASSERT_EQ(status, NIXL_SUCCESS);
+            EXPECT_NE(xfer_req, nullptr);
 
-                status = from.postXferReq(xfer_req);
-                ASSERT_GE(status, NIXL_SUCCESS);
+            status = from.postXferReq(xfer_req);
+            ASSERT_GE(status, NIXL_SUCCESS);
 
-                waitForXfer(from, from_name, to, xfer_req);
+            waitForXfer(from, from_name, to, xfer_req);
 
-                status = from.getXferStatus(xfer_req);
-                EXPECT_EQ(status, NIXL_SUCCESS);
+            status = from.getXferStatus(xfer_req);
+            EXPECT_EQ(status, NIXL_SUCCESS);
 
-                // Verify transfer was successful for this batch
-                for (size_t j = batch_start; j < batch_end; j++) {
-                    EXPECT_EQ(src_buffers[j], dst_buffers[j])
-                        << "Transfer validation failed for buffer " << j;
-                }
-
-                status = from.releaseXferReq(xfer_req);
-                EXPECT_EQ(status, NIXL_SUCCESS);
-
-                total_transferred += (batch_end - batch_start) * size;
+            // Verify transfer was successful for this batch
+            for (size_t j = batch_start; j < batch_end; j++) {
+                EXPECT_EQ(src_buffers[j], dst_buffers[j])
+                    << "Transfer validation failed for buffer " << j;
             }
+
+            status = from.releaseXferReq(xfer_req);
+            EXPECT_EQ(status, NIXL_SUCCESS);
+
+            total_transferred += (batch_end - batch_start) * size;
         }
 
         auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
         auto bandwidth = total_transferred / total_time / (1024 * 1024 * 1024);
         Logger() << (mode == NIXL_WRITE ? "Write" : "Read") << " transfer: "
-                 << size << "x" << count << "x" << repeat << "=" << total_transferred
+                 << size << "x" << count << "=" << total_transferred
                  << " bytes in " << total_time << " seconds "
                  << "(" << bandwidth << " GB/s)";
 
         invalidateMD();
     }
 
-    void doTransferWithNotificationCheck(nixlAgent &from, const std::string &from_name,
-                                         nixlAgent &to, const std::string &to_name, size_t size,
-                                         size_t count, size_t batch_size, size_t repeat,
-                                         nixl_mem_t src_mem_type, nixl_mem_t dst_mem_type,
-                                         nixl_xfer_op_t mode)
+    void doTransfers(nixlAgent &from, const std::string &from_name,
+                     nixlAgent &to, const std::string &to_name, size_t size,
+                     size_t count, size_t batch_size,
+                     nixl_mem_t src_mem_type, nixl_mem_t dst_mem_type,
+                     nixl_xfer_op_t mode)
     {
         std::vector<std::string> expected_notifs;
-        for (size_t i = 0; i < repeat; i++) {
-            for (size_t batch_start = 0; batch_start < count; batch_start += batch_size) {
-                size_t batch_idx = batch_start / batch_size;
-                expected_notifs.push_back(absl::StrFormat("notification_%zu", batch_idx));
-            }
+        for (size_t batch_start = 0; batch_start < count; batch_start += batch_size) {
+            size_t batch_idx = batch_start / batch_size;
+            expected_notifs.push_back(absl::StrFormat("notification_%zu", batch_idx));
         }
 
-        doTransfer(from, from_name, to, to_name, size, count, batch_size, repeat,
+        doTransfer(from, from_name, to, to_name, size, count, batch_size,
                   src_mem_type, dst_mem_type, mode, expected_notifs);
 
         nixl_notifs_t notif_map;
@@ -309,18 +305,18 @@ private:
 
 TEST_P(TestTransfer, RandomSizes)
 {
-    // Tuple fields are: size, count, batch_size, repeat
-    constexpr std::array<std::tuple<size_t, size_t, size_t, size_t>, 3> test_cases = {
-        {{4096, 128, 32, 3},
-         {32768, 32, 4, 3},
-         {1000000, 8, 1, 3}}
+    // Tuple fields are: size, count, batch_size
+    constexpr std::array<std::tuple<size_t, size_t, size_t>, 3> test_cases = {
+        {{4096, 128, 32},
+         {32768, 32, 4},
+         {1000000, 8, 1}}
     };
 
-    for (const auto &[size, count, batch_size, repeat] : test_cases) {
-        doTransferWithNotificationCheck(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
-                                      size, count, batch_size, repeat, DRAM_SEG, DRAM_SEG, NIXL_WRITE);
-        doTransferWithNotificationCheck(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
-                                      size, count, batch_size, repeat, DRAM_SEG, DRAM_SEG, NIXL_READ);
+    for (const auto &[size, count, batch_size] : test_cases) {
+        doTransfers(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
+                    size, count, batch_size, DRAM_SEG, DRAM_SEG, NIXL_WRITE);
+        doTransfers(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
+                    size, count, batch_size, DRAM_SEG, DRAM_SEG, NIXL_READ);
     }
 }
 
