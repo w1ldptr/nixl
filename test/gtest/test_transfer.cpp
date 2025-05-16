@@ -30,50 +30,27 @@
 
 namespace gtest {
 
-class MemBuffer : std::shared_ptr<void> {
+class MemBuffer {
 public:
     MemBuffer(size_t size, nixl_mem_t mem_type = DRAM_SEG) :
-        std::shared_ptr<void>(allocate(size, mem_type),
-                              [&mem_type](void *ptr) {
-                                  release(ptr, mem_type);
-                              }),
-        size(size)
+        buffer_(size),
+        mem_type_(mem_type)
     {
     }
 
     operator uintptr_t() const
     {
-        return reinterpret_cast<uintptr_t>(get());
+        return reinterpret_cast<uintptr_t>(buffer_.data());
     }
 
     size_t getSize() const
     {
-        return size;
+        return buffer_.size();
     }
 
 private:
-    static void *allocate(size_t size, nixl_mem_t mem_type)
-    {
-        switch (mem_type) {
-        case DRAM_SEG:
-            return malloc(size);
-        default:
-            return nullptr; // TODO
-        }
-    }
-
-    static void release(void *ptr, nixl_mem_t mem_type)
-    {
-        switch (mem_type) {
-        case DRAM_SEG:
-            free(ptr);
-            break;
-        default:
-            return; // TODO
-        }
-    }
-
-    const size_t size;
+    std::vector<uint8_t> buffer_;
+    nixl_mem_t mem_type_;
 };
 
 class TestTransfer : public testing::TestWithParam<std::string> {
