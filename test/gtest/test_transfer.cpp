@@ -73,6 +73,7 @@ private:
 template<nixl_mem_t MemType>
 std::vector<uint8_t> createRandomData(size_t size)
 {
+    auto start_time = absl::Now();
     std::vector<uint8_t> data(size);
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -81,6 +82,8 @@ std::vector<uint8_t> createRandomData(size_t size)
     for (auto& byte : data) {
         byte = static_cast<uint8_t>(distrib(gen));
     }
+    auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
+    Logger() << "createRandomData: " << size << " bytes in " << total_time << " seconds";
     return data;
 }
 
@@ -183,6 +186,7 @@ protected:
     initThreadBuffers(nixlAgent &from, nixlAgent &to, size_t num_threads, size_t count, size_t size,
                       nixl_mem_t src_mem_type, nixl_mem_t dst_mem_type, nixl_xfer_op_t mode)
     {
+        auto start_time = absl::Now();
         std::vector<std::vector<MemBuffer<DRAM_SEG>>> thread_src_buffers(num_threads);
         std::vector<std::vector<MemBuffer<DRAM_SEG>>> thread_dst_buffers(num_threads);
         for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
@@ -198,6 +202,9 @@ protected:
             registerMem(from, thread_src_buffers[thread_id], src_mem_type);
             registerMem(to, thread_dst_buffers[thread_id], dst_mem_type);
         }
+        auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
+        Logger() << "initThreadBuffers: " << num_threads << " threads, " << count << " buffers of " 
+                 << size << " bytes in " << total_time << " seconds";
         return {std::move(thread_src_buffers), std::move(thread_dst_buffers)};
     }
 
@@ -205,17 +212,22 @@ protected:
                                const std::vector<std::vector<MemBuffer<DRAM_SEG>>>& thread_dst_buffers,
                                size_t num_threads, size_t count)
     {
+        auto start_time = absl::Now();
         for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
             for (size_t i = 0; i < count; i++) {
                 EXPECT_EQ(thread_src_buffers[thread_id][i], thread_dst_buffers[thread_id][i])
                     << "Transfer validation failed for thread " << thread_id << " buffer " << i;
             }
         }
+        auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
+        Logger() << "validateThreadBuffers: " << num_threads << " threads, " << count 
+                 << " buffers in " << total_time << " seconds";
     }
 
     std::pair<std::vector<std::vector<std::string>>, std::set<std::string>>
     initThreadNotifications(size_t num_threads, size_t count, size_t batch_size)
     {
+        auto start_time = absl::Now();
         std::vector<std::vector<std::string>> thread_notifs(num_threads);
         std::set<std::string> expected_msgs;
         for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
@@ -226,12 +238,16 @@ protected:
                 expected_msgs.insert(notif);
             }
         }
+        auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
+        Logger() << "initThreadNotifications: " << num_threads << " threads, " 
+                 << count << " total notifications in " << total_time << " seconds";
         return {std::move(thread_notifs), std::move(expected_msgs)};
     }
 
     void validateNotifications(const nixl_notifs_t& notif_map, const std::string& from_name,
                                const std::set<std::string>& expected_msgs)
     {
+        auto start_time = absl::Now();
         auto& notif_list = notif_map.at(from_name);
         EXPECT_EQ(notif_list.size(), expected_msgs.size())
             << "Expected " << expected_msgs.size() << " notifications, got " << notif_list.size();
@@ -243,6 +259,9 @@ protected:
         }
         EXPECT_TRUE(remaining_msgs.empty())
             << "Missing " << remaining_msgs.size() << " notifications";
+        auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
+        Logger() << "validateNotifications: " << expected_msgs.size() 
+                 << " notifications in " << total_time << " seconds";
     }
 
     void doTransfer(nixlAgent &from, const std::string &from_name,
