@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <random>
 
 namespace gtest {
 
@@ -41,6 +42,11 @@ public:
     {
     }
 
+    MemBuffer(std::vector<uint8_t>&& data) :
+        buffer_(std::move(data))
+    {
+    }
+
     uintptr_t data() const
     {
         return reinterpret_cast<uintptr_t>(buffer_.data());
@@ -51,12 +57,19 @@ public:
         return buffer_.size();
     }
 
+    bool operator==(const MemBuffer<DRAM_SEG>& other) const
+    {
+        return buffer_ == other.buffer_;
+    }
+
 private:
     std::vector<uint8_t> buffer_;
 };
 
 class TestTransfer : public testing::TestWithParam<std::string> {
 protected:
+    TestTransfer() : rd(), gen(rd()), distrib() {}
+
     static nixlAgentConfig getConfig()
     {
         return nixlAgentConfig(false, false, 0,
@@ -168,7 +181,7 @@ protected:
         std::vector<MemBuffer<SrcMemType>> src_buffers;
         std::vector<MemBuffer<DstMemType>> dst_buffers;
         for (size_t i = 0; i < count; i++) {
-            src_buffers.emplace_back(size);
+            src_buffers.emplace_back(createRandomData<DRAM_SEG>(size));
             dst_buffers.emplace_back(size);
         }
 
@@ -210,6 +223,12 @@ protected:
         status = from.releaseXferReq(xfer_req);
         EXPECT_EQ(status, NIXL_SUCCESS);
 
+        // Verify transfer was successful
+        for (size_t i = 0; i < count; i++) {
+            EXPECT_EQ(src_buffers[i], dst_buffers[i])
+                << "Transfer validation failed for buffer " << i;
+        }
+
         invalidateMD();
     }
 
@@ -223,11 +242,31 @@ protected:
         return absl::StrFormat("agent_%d", idx);
     }
 
+    template<nixl_mem_t MemType>
+    std::vector<uint8_t> createRandomData(size_t size)
+    {
+        size_t aligned_size = (size + 7) & ~7;
+        std::vector<uint8_t> data(aligned_size);
+
+        for (size_t i = 0; i < aligned_size; i += 8) {
+            uint64_t rand_val = distrib(gen);
+            for (size_t j = 0; j < 8; ++j) {
+                data[i + j] = static_cast<uint8_t>(rand_val >> (j * 8));
+            }
+        }
+
+        data.resize(size);
+        return data;
+    }
+
 private:
     static constexpr uint64_t DEV_ID = 0;
     static const std::string NOTIF_MSG;
 
     std::vector<std::unique_ptr<nixlAgent>> agents;
+    std::random_device rd;
+    std::mt19937_64 gen;
+    std::uniform_int_distribution<uint64_t> distrib;
 };
 
 const std::string TestTransfer::NOTIF_MSG = "notification";
