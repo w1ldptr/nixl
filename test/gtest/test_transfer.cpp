@@ -188,12 +188,18 @@ protected:
     void doTransfer(nixlAgent &from, const std::string &from_name,
                     nixlAgent &to, const std::string &to_name, size_t size,
                     size_t count, size_t batch_size, size_t repeat,
-                    nixl_mem_t src_mem_type, nixl_mem_t dst_mem_type)
+                    nixl_mem_t src_mem_type, nixl_mem_t dst_mem_type,
+                    nixl_xfer_op_t mode)
     {
         std::vector<MemBuffer<DRAM_SEG>> src_buffers, dst_buffers;
         for (size_t i = 0; i < count; i++) {
-            src_buffers.emplace_back(createRandomData<DRAM_SEG>(size));
-            dst_buffers.emplace_back(size);
+            if (mode == NIXL_WRITE) {
+                src_buffers.emplace_back(createRandomData<DRAM_SEG>(size));
+                dst_buffers.emplace_back(size);
+            } else {
+                src_buffers.emplace_back(size);
+                dst_buffers.emplace_back(createRandomData<DRAM_SEG>(size));
+            }
         }
 
         registerMem(from, src_buffers, src_mem_type);
@@ -213,7 +219,7 @@ protected:
 
                 nixlXferReqH *xfer_req = nullptr;
                 nixl_status_t status = from.createXferReq(
-                    NIXL_WRITE,
+                    mode,
                     makeDescList<nixlBasicDesc>(
                         src_buffers.begin() + batch_start,
                         src_buffers.begin() + batch_end,
@@ -251,7 +257,8 @@ protected:
 
         auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
         auto bandwidth = total_transferred / total_time / (1024 * 1024 * 1024);
-        Logger() << size << "x" << count << "x" << repeat << "=" << total_transferred
+        Logger() << (mode == NIXL_WRITE ? "Write" : "Read") << " transfer: "
+                 << size << "x" << count << "x" << repeat << "=" << total_transferred
                  << " bytes in " << total_time << " seconds "
                  << "(" << bandwidth << " GB/s)";
 
@@ -288,7 +295,9 @@ TEST_P(TestTransfer, RandomSizes)
 
     for (const auto &[size, count, batch_size, repeat] : test_cases) {
         doTransfer(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
-                   size, count, batch_size, repeat, DRAM_SEG, DRAM_SEG);
+                   size, count, batch_size, repeat, DRAM_SEG, DRAM_SEG, NIXL_WRITE);
+        doTransfer(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
+                   size, count, batch_size, repeat, DRAM_SEG, DRAM_SEG, NIXL_READ);
     }
 }
 
