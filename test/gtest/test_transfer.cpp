@@ -112,13 +112,13 @@ protected:
         return GetParam();
     }
 
-    template<typename Desc>
+    template<typename Desc, typename Iter>
     nixlDescList<Desc>
-    makeDescList(const std::vector<MemBuffer<DRAM_SEG>> &buffers, nixl_mem_t mem_type)
+    makeDescList(Iter begin, Iter end, nixl_mem_t mem_type)
     {
         nixlDescList<Desc> desc_list(mem_type);
-        for (const auto &buffer : buffers) {
-            desc_list.addDesc(Desc(buffer.data(), buffer.size(), DEV_ID));
+        for (auto it = begin; it != end; ++it) {
+            desc_list.addDesc(Desc(it->data(), it->size(), DEV_ID));
         }
         return desc_list;
     }
@@ -126,7 +126,7 @@ protected:
     void registerMem(nixlAgent &agent, const std::vector<MemBuffer<DRAM_SEG>> &buffers,
                      nixl_mem_t mem_type)
     {
-        auto reg_list = makeDescList<nixlBlobDesc>(buffers, mem_type);
+        auto reg_list = makeDescList<nixlBlobDesc>(buffers.begin(), buffers.end(), mem_type);
         agent.registerMem(reg_list);
     }
 
@@ -207,8 +207,8 @@ protected:
         nixlXferReqH *xfer_req = nullptr;
         nixl_status_t status   = from.createXferReq(
                 NIXL_WRITE,
-                makeDescList<nixlBasicDesc>(src_buffers, src_mem_type),
-                makeDescList<nixlBasicDesc>(dst_buffers, dst_mem_type), to_name,
+                makeDescList<nixlBasicDesc>(src_buffers.begin(), src_buffers.end(), src_mem_type),
+                makeDescList<nixlBasicDesc>(dst_buffers.begin(), dst_buffers.end(), dst_mem_type), to_name,
                 xfer_req, &extra_params);
         ASSERT_EQ(status, NIXL_SUCCESS);
         EXPECT_NE(xfer_req, nullptr);
