@@ -30,11 +30,14 @@
 
 namespace gtest {
 
-class MemBuffer {
+template<nixl_mem_t MemType>
+class MemBuffer;
+
+template<>
+class MemBuffer<DRAM_SEG> {
 public:
-    MemBuffer(size_t size, nixl_mem_t mem_type = DRAM_SEG) :
-        buffer_(size),
-        mem_type_(mem_type)
+    MemBuffer(size_t size) :
+        buffer_(size)
     {
     }
 
@@ -50,7 +53,6 @@ public:
 
 private:
     std::vector<uint8_t> buffer_;
-    nixl_mem_t mem_type_;
 };
 
 class TestTransfer : public testing::TestWithParam<std::string> {
@@ -87,7 +89,7 @@ protected:
 
     template<typename Desc>
     nixlDescList<Desc>
-    makeDescList(const std::vector<MemBuffer> &buffers, nixl_mem_t mem_type)
+    makeDescList(const std::vector<MemBuffer<DRAM_SEG>> &buffers, nixl_mem_t mem_type)
     {
         nixlDescList<Desc> desc_list(mem_type);
         for (const auto &buffer : buffers) {
@@ -96,7 +98,7 @@ protected:
         return desc_list;
     }
 
-    void registerMem(nixlAgent &agent, const std::vector<MemBuffer> &buffers,
+    void registerMem(nixlAgent &agent, const std::vector<MemBuffer<DRAM_SEG>> &buffers,
                      nixl_mem_t mem_type)
     {
         auto reg_list = makeDescList<nixlBlobDesc>(buffers, mem_type);
@@ -163,10 +165,10 @@ protected:
                     size_t count, size_t repeat, nixl_mem_t src_mem_type,
                     nixl_mem_t dst_mem_type)
     {
-        std::vector<MemBuffer> src_buffers, dst_buffers;
+        std::vector<MemBuffer<DRAM_SEG>> src_buffers, dst_buffers;
         for (size_t i = 0; i < count; i++) {
-            src_buffers.emplace_back(size, src_mem_type);
-            dst_buffers.emplace_back(size, dst_mem_type);
+            src_buffers.emplace_back(size);
+            dst_buffers.emplace_back(size);
         }
 
         registerMem(from, src_buffers, src_mem_type);
