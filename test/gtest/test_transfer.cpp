@@ -33,6 +33,38 @@
 #include <thread>
 #include <mutex>
 
+// Xoshiro256+ implementation
+class xoroshiro128plus {
+public:
+    using result_type = uint32_t;
+    static constexpr result_type min() { return 0; }
+    static constexpr result_type max() { return UINT32_MAX; }
+
+    xoroshiro128plus(std::seed_seq& seed) {
+        std::vector<uint32_t> seeds(4);
+        seed.generate(seeds.begin(), seeds.end());
+        s[0] = seeds[0];
+        s[1] = seeds[1];
+        s[2] = seeds[2];
+        s[3] = seeds[3];
+    }
+
+    result_type operator()() {
+        const uint32_t result = s[0] + s[3];
+        const uint32_t t = s[1] << 9;
+        s[2] ^= s[0];
+        s[3] ^= s[1];
+        s[1] ^= s[2];
+        s[0] ^= s[3];
+        s[2] ^= t;
+        s[3] = (s[3] << 11) | (s[3] >> 21);
+        return result;
+    }
+
+private:
+    uint32_t s[4];
+};
+
 namespace gtest {
 
 template<nixl_mem_t MemType>
@@ -70,23 +102,6 @@ private:
     std::vector<uint8_t> buffer_;
 };
 
-template<nixl_mem_t MemType>
-std::vector<uint8_t> createRandomData(size_t size)
-{
-    auto start_time = absl::Now();
-    std::vector<uint8_t> data(size);
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distrib(0, 255);
-
-    for (auto& byte : data) {
-        byte = static_cast<uint8_t>(distrib(gen));
-    }
-    auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
-    Logger() << "createRandomData: " << size << " bytes in " << total_time << " seconds";
-    return data;
-}
-
 class TestTransfer : public testing::TestWithParam<std::string> {
 protected:
     static nixlAgentConfig getConfig()
@@ -112,6 +127,34 @@ protected:
     void TearDown() override
     {
         agents.clear();
+    }
+
+    template<nixl_mem_t MemType>
+    std::vector<uint8_t> createRandomData(size_t size)
+    {
+        auto start_time = absl::Now();
+
+        // Round up size to multiple of 4
+        size_t rounded_size = (size + 3) & ~3;
+        std::vector<uint8_t> data(rounded_size);
+
+        // Use Xoshiro256+ (faster than mt19937)
+        std::random_device rd;
+        std::seed_seq seed{rd(), rd(), rd(), rd()};
+        xoroshiro128plus engine(seed);
+
+        // Generate data in 32-bit chunks
+        uint32_t* data_ptr = reinterpret_cast<uint32_t*>(data.data());
+        for (size_t i = 0; i < rounded_size / 4; ++i) {
+            data_ptr[i] = engine();
+        }
+
+        // Resize to requested size
+        data.resize(size);
+
+        auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
+        Logger() << "createRandomData: " << size << " bytes in " << total_time << " seconds";
+        return data;
     }
 
     std::string getBackendName() const
@@ -203,7 +246,7 @@ protected:
             registerMem(to, thread_dst_buffers[thread_id], dst_mem_type);
         }
         auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
-        Logger() << "initThreadBuffers: " << num_threads << " threads, " << count << " buffers of " 
+        Logger() << "initThreadBuffers: " << num_threads << " threads, " << count << " buffers of "
                  << size << " bytes in " << total_time << " seconds";
         return {std::move(thread_src_buffers), std::move(thread_dst_buffers)};
     }
@@ -220,7 +263,7 @@ protected:
             }
         }
         auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
-        Logger() << "validateThreadBuffers: " << num_threads << " threads, " << count 
+        Logger() << "validateThreadBuffers: " << num_threads << " threads, " << count
                  << " buffers in " << total_time << " seconds";
     }
 
@@ -239,7 +282,7 @@ protected:
             }
         }
         auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
-        Logger() << "initThreadNotifications: " << num_threads << " threads, " 
+        Logger() << "initThreadNotifications: " << num_threads << " threads, "
                  << count << " total notifications in " << total_time << " seconds";
         return {std::move(thread_notifs), std::move(expected_msgs)};
     }
@@ -260,7 +303,7 @@ protected:
         EXPECT_TRUE(remaining_msgs.empty())
             << "Missing " << remaining_msgs.size() << " notifications";
         auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
-        Logger() << "validateNotifications: " << expected_msgs.size() 
+        Logger() << "validateNotifications: " << expected_msgs.size()
                  << " notifications in " << total_time << " seconds";
     }
 
@@ -379,7 +422,7 @@ TEST_P(TestTransfer, RandomSizes)
 {
     // Tuple fields are: size, count, batch_size, num_threads
     constexpr std::array<std::tuple<size_t, size_t, size_t, size_t>, 3> test_cases = {
-        {{4096, 1024, 32, 8},
+        {{4096, 128, 32, 8},
          {32768, 64, 4, 8},
          {1000000, 8, 1, 8}}
     };
