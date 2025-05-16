@@ -152,7 +152,7 @@ protected:
     }
 
     void waitForXfer(nixlAgent &from, const std::string &from_name,
-                     nixlAgent &to, nixlXferReqH *xfer_req)
+                     nixlAgent &to, nixlXferReqH *xfer_req, const std::string& expected_notif)
     {
         nixl_notifs_t notif_map;
         bool xfer_done;
@@ -170,7 +170,7 @@ protected:
         // Expect the notification from the right agent
         auto &notif_list = notif_map[from_name];
         EXPECT_EQ(notif_list.size(), 1u);
-        EXPECT_EQ(notif_list.front(), NOTIF_MSG);
+        EXPECT_EQ(notif_list.front(), expected_notif);
     }
 
     template<nixl_mem_t SrcMemType, nixl_mem_t DstMemType>
@@ -194,16 +194,17 @@ protected:
         registerMem(to, dst_buffers);
         exchangeMD();
 
-        nixl_opt_args_t extra_params;
-        extra_params.hasNotif = true;
-        extra_params.notifMsg = NOTIF_MSG;
-
         auto start_time = absl::Now();
         size_t total_transferred = 0;
 
         for (size_t i = 0; i < repeat; i++) {
             for (size_t batch_start = 0; batch_start < count; batch_start += batch_size) {
                 size_t batch_end = std::min(batch_start + batch_size, count);
+                size_t batch_idx = batch_start / batch_size;
+
+                nixl_opt_args_t extra_params;
+                extra_params.hasNotif = true;
+                extra_params.notifMsg = absl::StrFormat("notification_%zu", batch_idx);
 
                 nixlXferReqH *xfer_req = nullptr;
                 nixl_status_t status = from.createXferReq(
@@ -223,7 +224,7 @@ protected:
                 status = from.postXferReq(xfer_req);
                 ASSERT_GE(status, NIXL_SUCCESS);
 
-                waitForXfer(from, from_name, to, xfer_req);
+                waitForXfer(from, from_name, to, xfer_req, extra_params.notifMsg);
 
                 status = from.getXferStatus(xfer_req);
                 EXPECT_EQ(status, NIXL_SUCCESS);
@@ -280,15 +281,12 @@ protected:
 
 private:
     static constexpr uint64_t DEV_ID = 0;
-    static const std::string NOTIF_MSG;
 
     std::vector<std::unique_ptr<nixlAgent>> agents;
     std::random_device rd;
     std::mt19937_64 gen;
     std::uniform_int_distribution<uint64_t> distrib;
 };
-
-const std::string TestTransfer::NOTIF_MSG = "notification";
 
 TEST_P(TestTransfer, RandomSizes)
 {
