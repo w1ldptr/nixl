@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <random>
 
 namespace gtest {
 
@@ -41,6 +42,11 @@ public:
     {
     }
 
+    MemBuffer(std::vector<uint8_t>&& data) :
+        buffer_(std::move(data))
+    {
+    }
+
     uintptr_t data() const
     {
         return reinterpret_cast<uintptr_t>(buffer_.data());
@@ -51,9 +57,28 @@ public:
         return buffer_.size();
     }
 
+    bool operator==(const MemBuffer<DRAM_SEG>& other) const
+    {
+        return buffer_ == other.buffer_;
+    }
+
 private:
     std::vector<uint8_t> buffer_;
 };
+
+template<nixl_mem_t MemType>
+std::vector<uint8_t> createRandomData(size_t size)
+{
+    std::vector<uint8_t> data(size);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> distrib(0, 255);
+
+    for (auto& byte : data) {
+        byte = static_cast<uint8_t>(distrib(gen));
+    }
+    return data;
+}
 
 class TestTransfer : public testing::TestWithParam<std::string> {
 protected:
@@ -167,7 +192,7 @@ protected:
     {
         std::vector<MemBuffer<DRAM_SEG>> src_buffers, dst_buffers;
         for (size_t i = 0; i < count; i++) {
-            src_buffers.emplace_back(size);
+            src_buffers.emplace_back(createRandomData<DRAM_SEG>(size));
             dst_buffers.emplace_back(size);
         }
 
@@ -208,6 +233,12 @@ protected:
 
         status = from.releaseXferReq(xfer_req);
         EXPECT_EQ(status, NIXL_SUCCESS);
+
+        // Verify transfer was successful
+        for (size_t i = 0; i < count; i++) {
+            EXPECT_EQ(src_buffers[i], dst_buffers[i])
+                << "Transfer validation failed for buffer " << i;
+        }
 
         invalidateMD();
     }
