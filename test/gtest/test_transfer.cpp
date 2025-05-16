@@ -100,13 +100,13 @@ protected:
         return GetParam();
     }
 
-    template<typename Desc, nixl_mem_t MemType>
+    template<typename Desc, nixl_mem_t MemType, typename Iter>
     nixlDescList<Desc>
-    makeDescList(const std::vector<MemBuffer<MemType>> &buffers)
+    makeDescList(Iter begin, Iter end)
     {
         nixlDescList<Desc> desc_list(MemType);
-        for (const auto &buffer : buffers) {
-            desc_list.addDesc(Desc(buffer.data(), buffer.size(), DEV_ID));
+        for (auto it = begin; it != end; ++it) {
+            desc_list.addDesc(Desc(it->data(), it->size(), DEV_ID));
         }
         return desc_list;
     }
@@ -114,7 +114,7 @@ protected:
     template<nixl_mem_t MemType>
     void registerMem(nixlAgent &agent, const std::vector<MemBuffer<MemType>> &buffers)
     {
-        auto reg_list = makeDescList<nixlBlobDesc, MemType>(buffers);
+        auto reg_list = makeDescList<nixlBlobDesc, MemType>(buffers.begin(), buffers.end());
         agent.registerMem(reg_list);
     }
 
@@ -176,7 +176,7 @@ protected:
     template<nixl_mem_t SrcMemType, nixl_mem_t DstMemType>
     void doTransfer(nixlAgent &from, const std::string &from_name,
                     nixlAgent &to, const std::string &to_name, size_t size,
-                    size_t count, size_t repeat)
+                    size_t count, size_t batch_size, size_t repeat)
     {
         std::vector<MemBuffer<SrcMemType>> src_buffers;
         std::vector<MemBuffer<DstMemType>> dst_buffers;
@@ -193,41 +193,54 @@ protected:
         extra_params.hasNotif = true;
         extra_params.notifMsg = NOTIF_MSG;
 
-        nixlXferReqH *xfer_req = nullptr;
-        nixl_status_t status   = from.createXferReq(
-                NIXL_WRITE,
-                makeDescList<nixlBasicDesc, SrcMemType>(src_buffers),
-                makeDescList<nixlBasicDesc, DstMemType>(dst_buffers), to_name,
-                xfer_req, &extra_params);
-        ASSERT_EQ(status, NIXL_SUCCESS);
-        EXPECT_NE(xfer_req, nullptr);
-
         auto start_time = absl::Now();
+        size_t total_transferred = 0;
+
         for (size_t i = 0; i < repeat; i++) {
-            status = from.postXferReq(xfer_req);
-            ASSERT_GE(status, NIXL_SUCCESS);
+            for (size_t batch_start = 0; batch_start < count; batch_start += batch_size) {
+                size_t batch_end = std::min(batch_start + batch_size, count);
 
-            waitForXfer(from, from_name, to, xfer_req);
+                nixlXferReqH *xfer_req = nullptr;
+                nixl_status_t status = from.createXferReq(
+                    NIXL_WRITE,
+                    makeDescList<nixlBasicDesc, SrcMemType>(
+                        src_buffers.begin() + batch_start,
+                        src_buffers.begin() + batch_end),
+                    makeDescList<nixlBasicDesc, DstMemType>(
+                        dst_buffers.begin() + batch_start,
+                        dst_buffers.begin() + batch_end),
+                    to_name,
+                    xfer_req,
+                    &extra_params);
+                ASSERT_EQ(status, NIXL_SUCCESS);
+                EXPECT_NE(xfer_req, nullptr);
 
-            status = from.getXferStatus(xfer_req);
-            EXPECT_EQ(status, NIXL_SUCCESS);
+                status = from.postXferReq(xfer_req);
+                ASSERT_GE(status, NIXL_SUCCESS);
+
+                waitForXfer(from, from_name, to, xfer_req);
+
+                status = from.getXferStatus(xfer_req);
+                EXPECT_EQ(status, NIXL_SUCCESS);
+
+                // Verify transfer was successful for this batch
+                for (size_t j = batch_start; j < batch_end; j++) {
+                    EXPECT_EQ(src_buffers[j], dst_buffers[j])
+                        << "Transfer validation failed for buffer " << j;
+                }
+
+                status = from.releaseXferReq(xfer_req);
+                EXPECT_EQ(status, NIXL_SUCCESS);
+
+                total_transferred += (batch_end - batch_start) * size;
+            }
         }
-        auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
 
-        auto total_size = size * count * repeat;
-        auto bandwidth  = total_size / total_time / (1024 * 1024 * 1024);
-        Logger() << size << "x" << count << "x" << repeat << "=" << total_size
+        auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
+        auto bandwidth = total_transferred / total_time / (1024 * 1024 * 1024);
+        Logger() << size << "x" << count << "x" << repeat << "=" << total_transferred
                  << " bytes in " << total_time << " seconds "
                  << "(" << bandwidth << " GB/s)";
-
-        status = from.releaseXferReq(xfer_req);
-        EXPECT_EQ(status, NIXL_SUCCESS);
-
-        // Verify transfer was successful
-        for (size_t i = 0; i < count; i++) {
-            EXPECT_EQ(src_buffers[i], dst_buffers[i])
-                << "Transfer validation failed for buffer " << i;
-        }
 
         invalidateMD();
     }
@@ -273,16 +286,16 @@ const std::string TestTransfer::NOTIF_MSG = "notification";
 
 TEST_P(TestTransfer, RandomSizes)
 {
-    // Tuple fields are: size, count, repeat
-    constexpr std::array<std::tuple<size_t, size_t, size_t>, 3> test_cases = {
-        {{4096, 8, 3},
-         {32768, 64, 3},
-         {1000000, 100, 3}}
+    // Tuple fields are: size, count, batch_size, repeat
+    constexpr std::array<std::tuple<size_t, size_t, size_t, size_t>, 3> test_cases = {
+        {{4096, 128, 32, 3},
+         {32768, 32, 4, 3},
+         {1000000, 8, 1, 3}}
     };
 
-    for (const auto &[size, count, repeat] : test_cases) {
+    for (const auto &[size, count, batch_size, repeat] : test_cases) {
         doTransfer<DRAM_SEG, DRAM_SEG>(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
-                   size, count, repeat);
+                                       size, count, batch_size, repeat);
     }
 }
 
