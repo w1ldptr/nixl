@@ -31,6 +31,7 @@
 #include <functional>
 #include <random>
 #include <set>
+#include <thread>
 
 #ifdef HAVE_CUDA
 #include <cuda_runtime.h>
@@ -47,7 +48,7 @@ protected:
         return nixlAgentConfig(true,
                                listen_port > 0,
                                listen_port,
-                               nixl_thread_sync_t::NIXL_THREAD_SYNC_STRICT,
+                               nixl_thread_sync_t::NIXL_THREAD_SYNC_RW,
                                0,
                                100000);
     }
@@ -55,6 +56,17 @@ protected:
     static int getPort(int i)
     {
         return 9000 + i;
+    }
+
+    nixl_b_params_t getBackendParams()
+    {
+        nixl_b_params_t params;
+
+        if (getBackendName() == "UCX" || getBackendName() == "UCX_MO") {
+            params["num_workers"] = "2";
+        }
+
+        return params;
     }
 
     void SetUp() override
@@ -68,7 +80,7 @@ protected:
             agents.emplace_back(std::make_unique<nixlAgent>(getAgentName(i),
                                                             getConfig(getPort(i))));
             nixlBackendH *backend_handle = nullptr;
-            nixl_status_t status = agents.back()->createBackend(getBackendName(), {},
+            nixl_status_t status = agents.back()->createBackend(getBackendName(), getBackendParams(),
                                                                 backend_handle);
             ASSERT_EQ(status, NIXL_SUCCESS);
             EXPECT_NE(backend_handle, nullptr);
@@ -190,6 +202,105 @@ protected:
     }
 
     template<nixl_mem_t LocalMemType, nixl_mem_t RemoteMemType>
+    std::pair<std::vector<std::vector<MemBuffer<LocalMemType>>>,
+              std::vector<std::vector<MemBuffer<RemoteMemType>>>>
+    initThreadBuffers(nixlAgent &from,
+                      nixlAgent &to,
+                      size_t num_threads,
+                      size_t count,
+                      size_t size,
+                      nixl_xfer_op_t mode) {
+        std::vector<std::vector<MemBuffer<LocalMemType>>> thread_local_buffers(num_threads);
+        std::vector<std::vector<MemBuffer<RemoteMemType>>> thread_remote_buffers(num_threads);
+        for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
+            for (size_t i = 0; i < count; i++) {
+                if (mode == NIXL_WRITE) {
+                    thread_local_buffers[thread_id].emplace_back(
+                            createRandomData<LocalMemType>(size));
+                    thread_remote_buffers[thread_id].emplace_back(size);
+                } else {
+                    thread_local_buffers[thread_id].emplace_back(size);
+                    thread_remote_buffers[thread_id].emplace_back(
+                            createRandomData<RemoteMemType>(size));
+                }
+            }
+            registerMem(from, thread_local_buffers[thread_id]);
+            registerMem(to, thread_remote_buffers[thread_id]);
+        }
+        return {std::move(thread_local_buffers), std::move(thread_remote_buffers)};
+    }
+
+    template<nixl_mem_t LocalMemType, nixl_mem_t RemoteMemType>
+    void
+    validateThreadBuffers(
+            const std::vector<std::vector<MemBuffer<LocalMemType>>> &thread_local_buffers,
+            const std::vector<std::vector<MemBuffer<RemoteMemType>>> &thread_remote_buffers,
+            size_t num_threads,
+            size_t count) {
+        for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
+            for (size_t i = 0; i < count; i++) {
+                EXPECT_EQ(thread_local_buffers[thread_id][i], thread_remote_buffers[thread_id][i])
+                        << "Transfer validation failed for thread " << thread_id << " buffer " << i;
+            }
+        }
+    }
+
+    std::vector<std::vector<std::string>>
+    initThreadNotifications(size_t num_threads, size_t count, size_t batch_size) {
+        std::vector<std::vector<std::string>> thread_notifs(num_threads);
+        for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
+            for (size_t batch_start = 0; batch_start < count; batch_start += batch_size) {
+                size_t batch_idx = batch_start / batch_size;
+                std::string notif =
+                        absl::StrFormat("notification_thread_%zu_batch_%zu", thread_id, batch_idx);
+                thread_notifs[thread_id].push_back(notif);
+            }
+        }
+        return thread_notifs;
+    }
+
+    void
+    validateNotifications(const nixl_notifs_t &notif_map,
+                          const std::string &from_name,
+                          const std::vector<std::vector<std::string>> &thread_notifs) {
+        std::set<std::string> expected_msgs;
+        for (const auto &thread_notif_list : thread_notifs) {
+            expected_msgs.insert(thread_notif_list.begin(), thread_notif_list.end());
+        }
+
+        auto &notif_list = notif_map.at(from_name);
+        EXPECT_EQ(notif_list.size(), expected_msgs.size())
+                << "Expected " << expected_msgs.size() << " notifications, got "
+                << notif_list.size();
+
+        std::set<std::string> remaining_msgs = expected_msgs;
+        for (const auto &msg : notif_list) {
+            EXPECT_TRUE(remaining_msgs.erase(msg) > 0)
+                    << "Unexpected or duplicate notification: " << msg;
+        }
+        EXPECT_TRUE(remaining_msgs.empty())
+                << "Missing " << remaining_msgs.size() << " notifications";
+    }
+
+    template<nixl_mem_t LocalMemType, nixl_mem_t RemoteMemType>
+    void
+    zeroBuffers(std::vector<std::vector<MemBuffer<LocalMemType>>> &thread_local_buffers,
+                std::vector<std::vector<MemBuffer<RemoteMemType>>> &thread_remote_buffers,
+                size_t num_threads,
+                size_t count,
+                nixl_xfer_op_t mode) {
+        for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
+            for (size_t i = 0; i < count; i++) {
+                if (mode == NIXL_WRITE) {
+                    thread_remote_buffers[thread_id][i].zero();
+                } else {
+                    thread_local_buffers[thread_id][i].zero();
+                }
+            }
+        }
+    }
+
+    template<nixl_mem_t LocalMemType, nixl_mem_t RemoteMemType>
     void
     doTransfer(nixlAgent &from,
                const std::string &from_name,
@@ -198,81 +309,54 @@ protected:
                size_t size,
                size_t count,
                size_t batch_size,
-               size_t repeat,
                nixl_xfer_op_t mode,
                std::function<void()> setup_md,
-               const std::vector<std::string> &expected_notifs) {
-        std::vector<MemBuffer<LocalMemType>> local_buffers;
-        std::vector<MemBuffer<RemoteMemType>> remote_buffers;
-        for (size_t i = 0; i < count; i++) {
-            if (mode == NIXL_WRITE) {
-                local_buffers.emplace_back(createRandomData<LocalMemType>(size));
-                remote_buffers.emplace_back(size);
-            } else {
-                local_buffers.emplace_back(size);
-                remote_buffers.emplace_back(createRandomData<RemoteMemType>(size));
-            }
-        }
-
-        registerMem(from, local_buffers);
-        registerMem(to, remote_buffers);
-        setup_md();
-
+               const std::vector<std::string> &expected_notifs,
+               const std::vector<MemBuffer<LocalMemType>> &local_buffers,
+               const std::vector<MemBuffer<RemoteMemType>> &remote_buffers) {
         auto start_time = absl::Now();
         size_t total_transferred = 0;
         size_t notif_idx = 0;
 
-        for (size_t i = 0; i < repeat; i++) {
-            for (size_t batch_start = 0; batch_start < count; batch_start += batch_size) {
-                size_t batch_end = std::min(batch_start + batch_size, count);
+        for (size_t batch_start = 0; batch_start < count; batch_start += batch_size) {
+            size_t batch_end = std::min(batch_start + batch_size, count);
 
-                nixl_opt_args_t extra_params;
-                extra_params.hasNotif = true;
-                extra_params.notifMsg = expected_notifs[notif_idx++];
+            nixl_opt_args_t extra_params;
+            extra_params.hasNotif = true;
+            extra_params.notifMsg = expected_notifs[notif_idx++];
 
-                nixlXferReqH *xfer_req = nullptr;
-                nixl_status_t status = from.createXferReq(
-                        mode,
-                        makeDescList<nixlBasicDesc, LocalMemType>(local_buffers.begin() + batch_start,
-                                                                  local_buffers.begin() + batch_end),
-                        makeDescList<nixlBasicDesc, RemoteMemType>(
-                                remote_buffers.begin() + batch_start,
-                                remote_buffers.begin() + batch_end),
-                        to_name,
-                        xfer_req,
-                        &extra_params);
-                ASSERT_EQ(status, NIXL_SUCCESS);
-                EXPECT_NE(xfer_req, nullptr);
+            nixlXferReqH *xfer_req = nullptr;
+            nixl_status_t status = from.createXferReq(
+                    mode,
+                    makeDescList<nixlBasicDesc, LocalMemType>(local_buffers.begin() + batch_start,
+                                                              local_buffers.begin() + batch_end),
+                    makeDescList<nixlBasicDesc, RemoteMemType>(remote_buffers.begin() + batch_start,
+                                                               remote_buffers.begin() + batch_end),
+                    to_name,
+                    xfer_req,
+                    &extra_params);
+            ASSERT_EQ(status, NIXL_SUCCESS);
+            EXPECT_NE(xfer_req, nullptr);
 
-                status = from.postXferReq(xfer_req);
-                ASSERT_GE(status, NIXL_SUCCESS);
+            status = from.postXferReq(xfer_req);
+            ASSERT_GE(status, NIXL_SUCCESS);
 
-                waitForXfer(from, from_name, to, xfer_req);
+            waitForXfer(from, from_name, to, xfer_req);
 
-                status = from.getXferStatus(xfer_req);
-                EXPECT_EQ(status, NIXL_SUCCESS);
+            status = from.getXferStatus(xfer_req);
+            EXPECT_EQ(status, NIXL_SUCCESS);
 
-                // Verify transfer was successful for this batch
-                for (size_t j = batch_start; j < batch_end; j++) {
-                    EXPECT_EQ(local_buffers[j], remote_buffers[j])
-                            << "Transfer validation failed for buffer " << j;
-                }
+            status = from.releaseXferReq(xfer_req);
+            EXPECT_EQ(status, NIXL_SUCCESS);
 
-                status = from.releaseXferReq(xfer_req);
-                EXPECT_EQ(status, NIXL_SUCCESS);
-
-                total_transferred += (batch_end - batch_start) * size;
-            }
+            total_transferred += (batch_end - batch_start) * size;
         }
 
         auto total_time = absl::ToDoubleSeconds(absl::Now() - start_time);
         auto bandwidth = total_transferred / total_time / (1024 * 1024 * 1024);
         Logger() << (mode == NIXL_WRITE ? "Write" : "Read") << " transfer: " << size << "x" << count
-                 << "x" << repeat << "=" << total_transferred << " bytes in " << total_time
-                 << " seconds "
+                 << "=" << total_transferred << " bytes in " << total_time << " seconds "
                  << "(" << bandwidth << " GB/s)";
-
-        invalidateMD();
     }
 
     template<nixl_mem_t LocalMemType, nixl_mem_t RemoteMemType>
@@ -285,43 +369,53 @@ protected:
                 size_t count,
                 size_t batch_size,
                 size_t repeat,
+                size_t num_threads,
                 nixl_xfer_op_t mode,
-                std::function<void()> metadataSetup) {
-        std::vector<std::string> expected_notifs;
-        for (size_t i = 0; i < repeat; i++) {
-            for (size_t batch_start = 0; batch_start < count; batch_start += batch_size) {
-                size_t batch_idx = batch_start / batch_size;
-                expected_notifs.push_back(absl::StrFormat("notification_%zu", batch_idx));
+                std::function<void()> setup_md) {
+        auto [thread_local_buffers, thread_remote_buffers] =
+                initThreadBuffers<LocalMemType, RemoteMemType>(
+                        from, to, num_threads, count, size, mode);
+        setup_md();
+
+        auto base_thread_notifs = initThreadNotifications(num_threads, count, batch_size);
+
+        for (size_t repeat_idx = 0; repeat_idx < repeat; ++repeat_idx) {
+            zeroBuffers<LocalMemType, RemoteMemType>(
+                    thread_local_buffers, thread_remote_buffers, num_threads, count, mode);
+
+            std::vector<std::thread> threads;
+            for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
+                threads.emplace_back([&, thread_id]() {
+                    doTransfer<LocalMemType, RemoteMemType>(from,
+                                                            from_name,
+                                                            to,
+                                                            to_name,
+                                                            size,
+                                                            count,
+                                                            batch_size,
+                                                            mode,
+                                                            setup_md,
+                                                            base_thread_notifs[thread_id],
+                                                            thread_local_buffers[thread_id],
+                                                            thread_remote_buffers[thread_id]);
+                });
             }
+
+            for (auto &thread : threads) {
+                thread.join();
+            }
+
+            validateThreadBuffers<LocalMemType, RemoteMemType>(
+                    thread_local_buffers, thread_remote_buffers, num_threads, count);
+
+            nixl_notifs_t notif_map;
+            nixl_status_t status = to.getNotifs(notif_map);
+            ASSERT_EQ(status, NIXL_SUCCESS);
+
+            validateNotifications(notif_map, from_name, base_thread_notifs);
         }
 
-        doTransfer<LocalMemType, RemoteMemType>(from,
-                                                from_name,
-                                                to,
-                                                to_name,
-                                                size,
-                                                count,
-                                                batch_size,
-                                                repeat,
-                                                mode,
-                                                metadataSetup,
-                                                expected_notifs);
-
-        nixl_notifs_t notif_map;
-        nixl_status_t status = to.getNotifs(notif_map);
-        ASSERT_EQ(status, NIXL_SUCCESS);
-
-        auto &notif_list = notif_map[from_name];
-        EXPECT_EQ(notif_list.size(), expected_notifs.size())
-                << "Expected " << expected_notifs.size() << " notifications, got "
-                << notif_list.size();
-
-        std::set<std::string> expected_msgs(expected_notifs.begin(), expected_notifs.end());
-
-        for (const auto &msg : notif_list) {
-            EXPECT_TRUE(expected_msgs.find(msg) != expected_msgs.end())
-                    << "Unexpected notification message: " << msg;
-        }
+        invalidateMD();
     }
 
     nixlAgent &getAgent(size_t idx)
@@ -363,11 +457,11 @@ private:
 };
 
 TEST_P(TestTransfer, RandomSizes) {
-    // Tuple fields are: size, count, batch_size, repeat
-    constexpr std::array<std::tuple<size_t, size_t, size_t, size_t>, 4> test_cases = {
-            {{40, 1000, 1, 1}, {4096, 128, 32, 3}, {32768, 32, 4, 3}, {1000000, 8, 1, 3}}};
+    // Tuple fields are: size, count, batch_size, repeat, num_threads
+    constexpr std::array<std::tuple<size_t, size_t, size_t, size_t, size_t>, 4> test_cases = {
+            {{40, 250, 1, 1, 4}, {4096, 32, 2, 2, 4}, {32768, 16, 2, 2, 4}, {1000000, 8, 1, 2, 4}}};
 
-    for (const auto &[size, count, batch_size, repeat] : test_cases) {
+    for (const auto &[size, count, batch_size, repeat, num_threads] : test_cases) {
         doTransfers<DRAM_SEG, DRAM_SEG>(getAgent(0),
                                         getAgentName(0),
                                         getAgent(1),
@@ -376,6 +470,7 @@ TEST_P(TestTransfer, RandomSizes) {
                                         count,
                                         batch_size,
                                         repeat,
+                                        num_threads,
                                         NIXL_WRITE,
                                         [this]() { exchangeMD(); });
         doTransfers<DRAM_SEG, DRAM_SEG>(getAgent(0),
@@ -386,6 +481,7 @@ TEST_P(TestTransfer, RandomSizes) {
                                         count,
                                         batch_size,
                                         repeat,
+                                        num_threads,
                                         NIXL_READ,
                                         [this]() { exchangeMD(); });
     }
@@ -404,6 +500,7 @@ TEST_P(TestTransfer, remoteMDFromSocket) {
                                         count,
                                         1,
                                         1,
+                                        1,
                                         NIXL_WRITE,
                                         [this]() { exchangeMDIP(); });
     } else {
@@ -413,6 +510,7 @@ TEST_P(TestTransfer, remoteMDFromSocket) {
                                         getAgentName(1),
                                         size,
                                         count,
+                                        1,
                                         1,
                                         1,
                                         NIXL_WRITE,

@@ -46,6 +46,11 @@ public:
         return buffer_.size();
     }
 
+    void
+    zero() {
+        std::fill(buffer_.begin(), buffer_.end(), 0);
+    }
+
 private:
     std::vector<uint8_t> buffer_;
 };
@@ -114,6 +119,11 @@ public:
     size_t
     size() const {
         return size_;
+    }
+
+    void
+    zero() {
+        // TODO
     }
 
 private:
