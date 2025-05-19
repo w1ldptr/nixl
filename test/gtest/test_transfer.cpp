@@ -367,6 +367,43 @@ protected:
         invalidateMD();
     }
 
+    void doNotificationTest(nixlAgent &from, const std::string &from_name,
+                            nixlAgent &to, const std::string &to_name,
+                            size_t num_threads, size_t notifications_per_thread,
+                            size_t repeat)
+    {
+        auto thread_notifs = initThreadNotifications(num_threads, notifications_per_thread, 1);
+
+        exchangeMD();
+
+        for (size_t repeat_idx = 0; repeat_idx < repeat; ++repeat_idx) {
+
+            std::vector<std::thread> threads;
+            for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
+                threads.emplace_back([&, thread_id]() {
+                    const std::string& to_name = getAgentName(1);
+
+                    for (const auto& notif : thread_notifs[thread_id]) {
+                        nixl_status_t status = from.genNotif(to_name, notif);
+                        ASSERT_EQ(status, NIXL_SUCCESS);
+                    }
+                });
+            }
+
+            for (auto& thread : threads) {
+                thread.join();
+            }
+
+            nixl_notifs_t notif_map;
+            nixl_status_t status = to.getNotifs(notif_map);
+            ASSERT_EQ(status, NIXL_SUCCESS);
+
+            validateNotifications(notif_map, getAgentName(0), thread_notifs);
+        }
+
+        invalidateMD();
+    }
+
     nixlAgent &getAgent(size_t idx)
     {
         return *agents[idx];
@@ -418,6 +455,16 @@ TEST_P(TestTransfer, RandomSizes)
         doTransfers<DRAM_SEG, DRAM_SEG>(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
                                         size, count, batch_size, repeat, NIXL_READ, num_threads);
     }
+}
+
+TEST_P(TestTransfer, NotificationOnly)
+{
+    constexpr size_t num_threads = 4;
+    constexpr size_t notifications_per_thread = 10;
+    constexpr size_t repeat = 2;
+
+    doNotificationTest(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
+                      num_threads, notifications_per_thread, repeat);
 }
 
 INSTANTIATE_TEST_SUITE_P(ucx, TestTransfer, testing::Values("UCX"));

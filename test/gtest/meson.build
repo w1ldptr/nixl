@@ -50,7 +50,7 @@ test_exe = executable('gtest',
     install : true
 )
 
-test('gtest', test_exe, args: [plugin_dirs_arg])
+test('gtest', test_exe, is_parallel: false, args: [plugin_dirs_arg])
 
 if get_option('b_sanitize').split(',').contains('thread')
     test_env = environment()
