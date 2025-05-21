@@ -367,22 +367,37 @@ protected:
         invalidateMD();
     }
 
-    void doNotificationTest(nixlAgent &from, const std::string &from_name,
-                            nixlAgent &to, const std::string &to_name,
-                            size_t num_threads, size_t notifications_per_thread,
+    void doNotificationTest(size_t num_threads, size_t notifications_per_thread,
                             size_t repeat)
     {
+        std::string from_name = getAgentName(0);
+        std::string to_name = getAgentName(1);
+        nixlAgent to(to_name, getConfig());
+        nixlBackendH *backend_handle = nullptr;
+        nixl_status_t status = to.createBackend(getBackendName(), getBackendParams(),
+                                                    backend_handle);
+        ASSERT_EQ(status, NIXL_SUCCESS);
+        EXPECT_NE(backend_handle, nullptr);
+
         auto thread_notifs = initThreadNotifications(num_threads, notifications_per_thread, 1);
+        {
+            nixlAgent from(from_name, getConfig());
+            backend_handle = nullptr;
+            status = from.createBackend(getBackendName(), getBackendParams(),
+                                      backend_handle);
+            ASSERT_EQ(status, NIXL_SUCCESS);
+            EXPECT_NE(backend_handle, nullptr);
 
-        exchangeMD();
 
-        for (size_t repeat_idx = 0; repeat_idx < repeat; ++repeat_idx) {
+            nixl_blob_t md;
+            status = to.getLocalMD(md);
+            ASSERT_EQ(status, NIXL_SUCCESS);
+            status = from.loadRemoteMD(md, to_name);
+            ASSERT_EQ(status, NIXL_SUCCESS);
 
             std::vector<std::thread> threads;
             for (size_t thread_id = 0; thread_id < num_threads; ++thread_id) {
                 threads.emplace_back([&, thread_id]() {
-                    const std::string& to_name = getAgentName(1);
-
                     for (const auto& notif : thread_notifs[thread_id]) {
                         nixl_status_t status = from.genNotif(to_name, notif);
                         ASSERT_EQ(status, NIXL_SUCCESS);
@@ -394,14 +409,16 @@ protected:
                 thread.join();
             }
 
-            nixl_notifs_t notif_map;
-            nixl_status_t status = to.getNotifs(notif_map);
+            status = from.invalidateRemoteMD(to_name);
             ASSERT_EQ(status, NIXL_SUCCESS);
-
-            validateNotifications(notif_map, getAgentName(0), thread_notifs);
         }
 
-        invalidateMD();
+        nixl_notifs_t notif_map;
+        status = to.getNotifs(notif_map);
+        ASSERT_EQ(status, NIXL_SUCCESS);
+
+        validateNotifications(notif_map, getAgentName(0), thread_notifs);
+
     }
 
     nixlAgent &getAgent(size_t idx)
@@ -459,11 +476,11 @@ TEST_P(TestTransfer, RandomSizes)
 
 TEST_P(TestTransfer, NotificationOnly)
 {
-    constexpr size_t num_threads = 4;
-    constexpr size_t notifications_per_thread = 10;
+    constexpr size_t num_threads = 1;
+    constexpr size_t notifications_per_thread = 100000;
     constexpr size_t repeat = 2;
 
-    doNotificationTest(getAgent(0), getAgentName(0), getAgent(1), getAgentName(1),
+    doNotificationTest(
                       num_threads, notifications_per_thread, repeat);
 }
 
