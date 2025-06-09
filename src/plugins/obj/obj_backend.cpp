@@ -143,6 +143,16 @@ public:
     std::atomic<nixl_status_t> status_;
 };
 
+class nixlObjMetadata : public nixlBackendMD {
+public:
+    nixl_mem_t nixl_mem;
+    uint64_t dev_id;
+    std::string obj_key;
+
+    nixlObjMetadata() : nixlBackendMD (true) {}
+    ~nixlObjMetadata() {}
+};
+
 // -----------------------------------------------------------------------------
 // Obj Engine Implementation
 // -----------------------------------------------------------------------------
@@ -191,12 +201,31 @@ nixl_status_t
 nixlObjEngine::registerMem (const nixlBlobDesc &mem,
                             const nixl_mem_t &nixl_mem,
                             nixlBackendMD *&out) {
-    // TODO: save mapping mem.devId to mem.metaInfo
+    nixlObjMetadata *obj_md = new nixlObjMetadata();
+    obj_md->nixl_mem = nixl_mem;
+    obj_md->dev_id = mem.devId;
+
+    if (nixl_mem == OBJ_SEG) {
+        if (mem.metaInfo.empty()) {
+            obj_md->obj_key = std::to_string (mem.devId);
+        } else {
+            obj_md->obj_key = mem.metaInfo;
+        }
+        dev_id_to_obj_key[mem.devId] = obj_md->obj_key;
+    }
+
+    out = (nixlBackendMD *)obj_md;
     return NIXL_SUCCESS;
 }
 
 nixl_status_t
-nixlObjEngine::deregisterMem (nixlBackendMD *) {
+nixlObjEngine::deregisterMem (nixlBackendMD *meta) {
+    nixlObjMetadata *obj_md = static_cast<nixlObjMetadata *> (meta);
+    if (obj_md->nixl_mem == OBJ_SEG) {
+        dev_id_to_obj_key.erase (obj_md->dev_id);
+    }
+    delete obj_md;
+
     return NIXL_SUCCESS;
 }
 
@@ -221,12 +250,22 @@ nixlObjEngine::postXfer (const nixl_xfer_op_t &operation,
                          const nixl_opt_b_args_t *opt_args) const {
     nixlObjBackendReqH *req_h = static_cast<nixlObjBackendReqH *> (handle);
 
+    nixlObjMetadata* obj_md = static_cast<nixlObjMetadata*> (remote.begin()->metadataP);
+    if (!obj_md) {
+        NIXL_ERROR << "No metadata found for remote descriptor";
+        return NIXL_ERR_INVALID_PARAM;
+    }
+
+    std::string obj_key = obj_md->obj_key;
+    if (obj_key.empty()) {
+        NIXL_ERROR << "No object key found for device ID: " << obj_md->dev_id;
+        return NIXL_ERR_INVALID_PARAM;
+    }
+
     req_h->completed_ = false;
     if (operation == NIXL_WRITE) {
         Aws::S3::Model::PutObjectRequest object_request;
-        object_request.WithBucket (bucket_name_)
-                .WithKey ("test-key"); // TODO: key should be mapped from devId to metadata passed
-                                       // during memory registration
+        object_request.WithBucket (bucket_name_).WithKey (obj_key);
         auto data = Aws::MakeShared<Aws::StringStream> (
                 "PutObjectInputStream",
                 std::stringstream::in | std::stringstream::out | std::stringstream::binary);
@@ -251,7 +290,7 @@ nixlObjEngine::postXfer (const nixl_xfer_op_t &operation,
                 nullptr);
     } else if (operation == NIXL_READ) {
         Aws::S3::Model::GetObjectRequest object_request;
-        object_request.WithBucket (bucket_name_).WithKey ("test-key");
+        object_request.WithBucket (bucket_name_).WithKey (obj_key);
         void *addr = reinterpret_cast<void *> (local.begin()->addr);
         size_t len = local.begin()->len;
         s3_client_->GetObjectAsync (
