@@ -22,6 +22,7 @@
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
+#include <memory>
 #include <stdexcept>
 #include <optional>
 #include <cstdlib>
@@ -148,6 +149,7 @@ public:
 
 nixlObjEngine::nixlObjEngine (const nixlBackendInitParams *init_params) :
         nixlBackendEngine (init_params),
+        executor_ (std::make_shared<AsioThreadPoolExecutor> (std::thread::hardware_concurrency())),
         aws_options_ (
                 []() {
                     auto *opts = new Aws::SDKOptions();
@@ -160,6 +162,7 @@ nixlObjEngine::nixlObjEngine (const nixlBackendInitParams *init_params) :
                 }) {
     auto *custom_params = init_params->customParams;
     auto config = createClientConfiguration (custom_params);
+    config.executor = executor_;
     auto credentials_opt = createAWSCredentials (custom_params);
     bool use_virtual_addressing = getUserVirtualAddressing (custom_params);
     bucket_name_ = getBucketName (custom_params);
@@ -178,6 +181,10 @@ nixlObjEngine::nixlObjEngine (const nixlBackendInitParams *init_params) :
     }
 
     NIXL_INFO << "Object storage backend initialized with AWS S3 client";
+}
+
+nixlObjEngine::~nixlObjEngine() {
+    executor_->WaitUntilStopped();
 }
 
 nixl_status_t

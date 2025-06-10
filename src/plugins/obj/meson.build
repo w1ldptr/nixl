@@ -28,6 +28,7 @@ if aws_s3.found()
 else
     subdir_done()
 endif
+plugin_deps += [dependency('asio', required: true)]
 
 if 'OBJ' in static_plugins
     obj_backend_lib = static_library(

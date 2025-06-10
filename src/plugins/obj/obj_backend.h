@@ -18,6 +18,7 @@
 #ifndef OBJ_BACKEND_H
 #define OBJ_BACKEND_H
 
+#include "obj_executor.h"
 #include <string>
 #include <memory>
 #include <aws/core/Aws.h>
@@ -31,7 +32,7 @@
 class nixlObjEngine : public nixlBackendEngine {
 public:
     nixlObjEngine(const nixlBackendInitParams* init_params);
-    virtual ~nixlObjEngine() = default;
+    virtual ~nixlObjEngine();
 
     bool supportsRemote() const override {
         return false;
@@ -94,6 +95,7 @@ public:
     }
 
 private:
+    std::shared_ptr<AsioThreadPoolExecutor> executor_;
     // This member must be defined before other AWS SDK members so that it
     // is destroyed last.
     std::unique_ptr<Aws::SDKOptions, void(*)(Aws::SDKOptions*)> aws_options_;
