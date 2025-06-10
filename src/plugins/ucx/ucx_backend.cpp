@@ -33,6 +33,16 @@
 
 #endif
 
+namespace {
+    void moveNotifList(notif_list_t &src, notif_list_t &tgt)
+    {
+        if (src.size() > 0) {
+            std::move(src.begin(), src.end(), std::back_inserter(tgt));
+            src.clear();
+        }
+    }
+}
+
 /****************************************
  * CUDA related code
  *****************************************/
@@ -365,11 +375,15 @@ public:
         }
 
         const auto &uw = eng.getWorker(worker_id);
+
+        /* Maximum progress */
+        while (uw->progress());
+
         /* Go over all request updating their status */
         while(req) {
             nixl_status_t ret;
             if (!req->is_complete()) {
-                ret = uw->test((nixlUcxReq)req);
+                ret = ucx_status_to_nixl(ucp_request_check_status((nixlUcxReq)req));
                 switch (ret) {
                     case NIXL_SUCCESS:
                         /* Mark as completed */
@@ -663,25 +677,15 @@ nixlUcxEngine::connectionCheckAmCb(void *arg, const void *header,
                                    size_t length,
                                    const ucp_am_recv_param_t *param)
 {
-    struct nixl_ucx_am_hdr* hdr = (struct nixl_ucx_am_hdr*) header;
-
     std::string remote_agent( (char*) data, length);
     nixlUcxEngine* engine = (nixlUcxEngine*) arg;
 
-    if(hdr->op != CONN_CHECK) {
-        //is this the best way to ERR?
-        return UCS_ERR_INVALID_PARAM;
-    }
-
-    //send_am should be forcing EAGER protocol
-    if((param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV) != 0) {
-        //is this the best way to ERR?
-        return UCS_ERR_INVALID_PARAM;
-    }
+    NIXL_ASSERT(!(param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV));
+    NIXL_ASSERT(header_length == 0) << "header_length " << header_length;
 
     if(engine->checkConn(remote_agent)) {
-        //TODO: received connect AM from agent we don't recognize
-        return UCS_ERR_INVALID_PARAM;
+        NIXL_ERROR << "Received connect AM from agent we don't recognize: " << remote_agent;
+        return UCS_OK;
     }
 
     return UCS_OK;
@@ -693,20 +697,11 @@ nixlUcxEngine::connectionTermAmCb (void *arg, const void *header,
                                    size_t length,
                                    const ucp_am_recv_param_t *param)
 {
-    struct nixl_ucx_am_hdr* hdr = (struct nixl_ucx_am_hdr*) header;
-
     std::string remote_agent( (char*) data, length);
 
-    if(hdr->op != DISCONNECT) {
-        //is this the best way to ERR?
-        return UCS_ERR_INVALID_PARAM;
-    }
+    NIXL_ASSERT(!(param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV));
+    NIXL_ASSERT(header_length == 0) << "header_length " << header_length;
 
-    //send_am should be forcing EAGER protocol
-    if((param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV) != 0) {
-        //is this the best way to ERR?
-        return UCS_ERR_INVALID_PARAM;
-    }
 /*
     // TODO: research UCX connection logic and fix.
     nixlUcxEngine* engine = (nixlUcxEngine*) arg;
@@ -719,9 +714,6 @@ nixlUcxEngine::connectionTermAmCb (void *arg, const void *header,
 }
 
 nixl_status_t nixlUcxEngine::connect(const std::string &remote_agent) {
-    nixl_ucx_am_hdr hdr;
-    std::uint32_t flags = 0;
-
     if(remote_agent == localAgent) {
         return loadRemoteConnInfo(remote_agent, workerAddr);
     }
@@ -731,19 +723,14 @@ nixl_status_t nixlUcxEngine::connect(const std::string &remote_agent) {
         return NIXL_ERR_NOT_FOUND;
     }
 
-    hdr.op = CONN_CHECK;
-    //agent names should never be long enough to need RNDV
-    flags |= UCP_AM_SEND_FLAG_EAGER;
-
     bool error = false;
     nixl_status_t ret = NIXL_SUCCESS;
     std::vector<nixlUcxReq> reqs;
     for (size_t i = 0; i < uws.size(); i++) {
         reqs.emplace_back();
-        ret = search->second->getEp(i)->sendAm(CONN_CHECK,
-                                               &hdr, sizeof(struct nixl_ucx_am_hdr),
+        ret = search->second->getEp(i)->sendAm(CONN_CHECK, NULL, 0,
                                                (void*) localAgent.data(), localAgent.size(),
-                                               flags, reqs.back());
+                                               UCP_AM_SEND_FLAG_EAGER, reqs.back());
         if(ret < 0) {
             error = true;
             break;
@@ -760,10 +747,6 @@ nixl_status_t nixlUcxEngine::connect(const std::string &remote_agent) {
 }
 
 nixl_status_t nixlUcxEngine::disconnect(const std::string &remote_agent) {
-
-    static struct nixl_ucx_am_hdr hdr;
-    uint32_t flags = 0;
-
     if (remote_agent != localAgent) {
         auto search = remoteConnMap.find(remote_agent);
 
@@ -774,15 +757,10 @@ nixl_status_t nixlUcxEngine::disconnect(const std::string &remote_agent) {
         nixl_status_t ret = NIXL_SUCCESS;
         for (size_t i = 0; i < uws.size(); i++) {
             if (search->second->getEp(i)->checkTxState() == NIXL_SUCCESS) {
-                hdr.op = DISCONNECT;
-                //agent names should never be long enough to need RNDV
-                flags |= UCP_AM_SEND_FLAG_EAGER;
-
                 nixlUcxReq req;
-                ret = search->second->getEp(i)->sendAm(DISCONNECT,
-                                                       &hdr, sizeof(struct nixl_ucx_am_hdr),
+                ret = search->second->getEp(i)->sendAm(DISCONNECT, NULL, 0,
                                                        (void*) localAgent.data(), localAgent.size(),
-                                                       flags, req);
+                                                       UCP_AM_SEND_FLAG_EAGER, req);
                 //don't care
                 if (ret == NIXL_IN_PROG)
                     getWorker(i)->reqRelease(req);
@@ -1167,9 +1145,6 @@ nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
                                            size_t worker_id) const
 {
     nixlSerDes ser_des;
-    // TODO - temp fix, need to have an mpool
-    static struct nixl_ucx_am_hdr hdr;
-    uint32_t flags = 0;
     nixl_status_t ret;
 
     auto search = remoteConnMap.find(remote_agent);
@@ -1179,18 +1154,14 @@ nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
         return NIXL_ERR_NOT_FOUND;
     }
 
-    hdr.op = NOTIF_STR;
-    flags |= UCP_AM_SEND_FLAG_EAGER;
-
     ser_des.addStr("name", localAgent);
     ser_des.addStr("msg", msg);
     // TODO: replace with mpool for performance
 
     auto buffer = std::make_unique<std::string>(std::move(ser_des.exportStr()));
-    ret = search->second->getEp(worker_id)->sendAm(NOTIF_STR,
-                                                   &hdr, sizeof(struct nixl_ucx_am_hdr),
+    ret = search->second->getEp(worker_id)->sendAm(NOTIF_STR, NULL, 0,
                                                    (void*)buffer->data(), buffer->size(),
-                                                   flags, req);
+                                                   UCP_AM_SEND_FLAG_EAGER, req);
 
     if (ret == NIXL_IN_PROG) {
         nixlUcxIntReq* nReq = (nixlUcxIntReq*)req;
@@ -1205,23 +1176,15 @@ nixlUcxEngine::notifAmCb(void *arg, const void *header,
                          size_t length,
                          const ucp_am_recv_param_t *param)
 {
-    struct nixl_ucx_am_hdr* hdr = (struct nixl_ucx_am_hdr*) header;
     nixlSerDes ser_des;
 
     std::string ser_str( (char*) data, length);
     nixlUcxEngine* engine = (nixlUcxEngine*) arg;
     std::string remote_name, msg;
 
-    if(hdr->op != NOTIF_STR) {
-        //is this the best way to ERR?
-        return UCS_ERR_INVALID_PARAM;
-    }
-
-    //send_am should be forcing EAGER protocol
-    if((param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV) != 0) {
-        //is this the best way to ERR?
-        return UCS_ERR_INVALID_PARAM;
-    }
+    // send_am should be forcing EAGER protocol
+    NIXL_ASSERT(!(param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV));
+    NIXL_ASSERT(header_length == 0) << "header_length " << header_length;
 
     ser_des.importStr(ser_str);
     remote_name = ser_des.getStr("name");
@@ -1237,28 +1200,10 @@ nixlUcxEngine::notifAmCb(void *arg, const void *header,
     return UCS_OK;
 }
 
-
-void nixlUcxEngine::notifCombineHelper(notif_list_t &src, notif_list_t &tgt)
-{
-    if (!src.size()) {
-        // Nothing to do. Exit
-        return;
-    }
-
-    move(src.begin(), src.end(), back_inserter(tgt));
-    src.erase(src.begin(), src.end());
-}
-
 void nixlUcxEngine::notifProgressCombineHelper(notif_list_t &src, notif_list_t &tgt)
 {
-    notifMtx.lock();
-
-    if (src.size()) {
-        move(src.begin(), src.end(), back_inserter(tgt));
-        src.erase(src.begin(), src.end());
-    }
-
-    notifMtx.unlock();
+    const std::lock_guard<std::mutex> lock(notifMtx);
+    moveNotifList(src, tgt);
 }
 
 void nixlUcxEngine::notifProgress()
@@ -1273,7 +1218,7 @@ nixl_status_t nixlUcxEngine::getNotifs(notif_list_t &notif_list)
 
     if(!pthrOn) while(progress());
 
-    notifCombineHelper(notifMainList, notif_list);
+    moveNotifList(notifMainList, notif_list);
     notifProgressCombineHelper(notifPthr, notif_list);
 
     return NIXL_SUCCESS;
