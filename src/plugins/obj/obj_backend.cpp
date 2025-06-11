@@ -201,30 +201,32 @@ nixl_status_t
 nixlObjEngine::registerMem (const nixlBlobDesc &mem,
                             const nixl_mem_t &nixl_mem,
                             nixlBackendMD *&out) {
-    nixlObjMetadata *obj_md = new nixlObjMetadata();
+    if (nixl_mem != OBJ_SEG) {
+        return NIXL_SUCCESS;
+    }
+
+    std::unique_ptr<nixlObjMetadata> obj_md = std::make_unique<nixlObjMetadata>();
     obj_md->nixl_mem = nixl_mem;
     obj_md->dev_id = mem.devId;
 
-    if (nixl_mem == OBJ_SEG) {
-        if (mem.metaInfo.empty()) {
-            obj_md->obj_key = std::to_string (mem.devId);
-        } else {
-            obj_md->obj_key = mem.metaInfo;
-        }
-        dev_id_to_obj_key[mem.devId] = obj_md->obj_key;
+    if (mem.metaInfo.empty()) {
+        obj_md->obj_key = std::to_string (mem.devId);
+    } else {
+        obj_md->obj_key = mem.metaInfo;
     }
+    dev_id_to_obj_key[mem.devId] = obj_md->obj_key;
 
-    out = (nixlBackendMD *)obj_md;
+    out = obj_md.release();
     return NIXL_SUCCESS;
 }
 
 nixl_status_t
 nixlObjEngine::deregisterMem (nixlBackendMD *meta) {
     nixlObjMetadata *obj_md = static_cast<nixlObjMetadata *> (meta);
-    if (obj_md->nixl_mem == OBJ_SEG) {
+    if (obj_md && obj_md->nixl_mem == OBJ_SEG) {
+        std::unique_ptr<nixlObjMetadata> obj_md_ptr = std::unique_ptr<nixlObjMetadata> (obj_md);
         dev_id_to_obj_key.erase (obj_md->dev_id);
     }
-    delete obj_md;
 
     return NIXL_SUCCESS;
 }
