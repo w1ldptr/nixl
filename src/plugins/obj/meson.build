@@ -13,11 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Define base source files - conditionally include uring_queue.cpp
 obj_sources = [
     'obj_backend.cpp',
     'obj_backend.h',
     'obj_plugin.cpp',
+    'obj_s3_client.cpp',
+    'obj_s3_client.h',
 ]
 
 aws_s3 = dependency('aws-cpp-sdk-s3', static: false, required: false)

@@ -19,20 +19,16 @@
 #define OBJ_BACKEND_H
 
 #include "obj_executor.h"
+#include "obj_s3_client.h"
 #include <string>
 #include <memory>
 #include <unordered_map>
-#include <aws/core/Aws.h>
-#include <aws/core/client/ClientConfiguration.h>
-#include <aws/core/auth/AWSCredentials.h>
-#include <aws/core/auth/AWSCredentialsProvider.h>
-#include <aws/s3/S3Client.h>
-#include <aws/s3/S3ClientConfiguration.h>
 #include "backend/backend_engine.h"
 
 class nixlObjEngine : public nixlBackendEngine {
 public:
     nixlObjEngine(const nixlBackendInitParams* init_params);
+    nixlObjEngine(const nixlBackendInitParams* init_params, std::shared_ptr<IS3Client> s3_client);
     virtual ~nixlObjEngine();
 
     bool supportsRemote() const override {
@@ -97,11 +93,7 @@ public:
 
 private:
     std::shared_ptr<AsioThreadPoolExecutor> executor_;
-    // This member must be defined before other AWS SDK members so that it
-    // is destroyed last.
-    std::unique_ptr<Aws::SDKOptions, void(*)(Aws::SDKOptions*)> aws_options_;
-    std::unique_ptr<Aws::S3::S3Client> s3_client_;
-    std::string bucket_name_;
+    std::shared_ptr<IS3Client> s3_client_;
     std::unordered_map<uint64_t, std::string> dev_id_to_obj_key;
 };
 
