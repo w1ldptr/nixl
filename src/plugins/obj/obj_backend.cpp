@@ -201,7 +201,7 @@ nixl_status_t
 nixlObjEngine::registerMem (const nixlBlobDesc &mem,
                             const nixl_mem_t &nixl_mem,
                             nixlBackendMD *&out) {
-    nixlObjMetadata *obj_md = new nixlObjMetadata();
+    auto obj_md = std::make_unique<nixlObjMetadata> ();
     obj_md->nixl_mem = nixl_mem;
     obj_md->dev_id = mem.devId;
 
@@ -214,7 +214,7 @@ nixlObjEngine::registerMem (const nixlBlobDesc &mem,
         dev_id_to_obj_key[mem.devId] = obj_md->obj_key;
     }
 
-    out = (nixlBackendMD *)obj_md;
+    out = obj_md.release();
     return NIXL_SUCCESS;
 }
 
