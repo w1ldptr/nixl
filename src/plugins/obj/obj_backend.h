@@ -21,6 +21,7 @@
 #include "obj_executor.h"
 #include <string>
 #include <memory>
+#include <unordered_map>
 #include <aws/core/Aws.h>
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/core/auth/AWSCredentials.h>
@@ -101,6 +102,7 @@ private:
     std::unique_ptr<Aws::SDKOptions, void(*)(Aws::SDKOptions*)> aws_options_;
     std::unique_ptr<Aws::S3::S3Client> s3_client_;
     std::string bucket_name_;
+    std::unordered_map<uint64_t, std::string> dev_id_to_obj_key;
 };
 
 #endif // OBJ_BACKEND_H
