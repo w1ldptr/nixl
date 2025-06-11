@@ -14,36 +14,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <gtest/gtest.h>
 
-#ifndef OBJ_EXECUTOR_H
-#define OBJ_EXECUTOR_H
+namespace gtest {
 
-#include <aws/core/utils/threading/Executor.h>
-#include <asio.hpp>
-#include <functional>
+int
+RunTests (int argc, char **argv) {
+    testing::InitGoogleTest (&argc, argv);
+    return RUN_ALL_TESTS();
+}
 
-class AsioThreadPoolExecutor : public Aws::Utils::Threading::Executor {
-public:
-    explicit AsioThreadPoolExecutor(std::size_t num_threads)
-        : pool_(num_threads) {}
+} // namespace gtest
 
-    void WaitUntilStopped() override {
-        pool_.stop();
-        pool_.join();
-    }
-
-    void WaitUntilIdle() {
-        pool_.wait();
-    }
-
-protected:
-    bool SubmitToThread(std::function<void()>&& task) override {
-        asio::post(pool_, std::move(task));
-        return true;
-    }
-
-private:
-    asio::thread_pool pool_;
-};
-
-#endif // OBJ_EXECUTOR_H
+int
+main (int argc, char **argv) {
+    return gtest::RunTests (argc, argv);
+}
