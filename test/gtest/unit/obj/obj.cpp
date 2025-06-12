@@ -287,6 +287,7 @@ TEST_F (ObjTestFixture, CancelTransfer) {
     // This simulates the cancellation behavior from nixlAgent::releaseXferReq
     status = obj_engine_->releaseReqH (handle);
     EXPECT_EQ (status, NIXL_SUCCESS);
+    mock_s3_client_->execAsync();
 
     // After cancellation/release, we can't check the transfer status anymore
     // as the handle has been released. This verifies that cancelling pending
