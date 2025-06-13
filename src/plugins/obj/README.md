@@ -140,3 +140,38 @@ nixl_b_params_t params = {
 };
 agent.createBackend("obj", params);
 ```
+
+## Transfer Operations
+
+The Object Storage backend supports read and write operations between local memory and S3 objects. Here are the key aspects of transfer operations:
+
+### Device ID to Object Key Mapping
+
+- Each object in S3 is identified by a unique object key
+- The backend maintains a mapping between device IDs (`devId`) and object keys
+- When registering memory:
+  - If `metaInfo` is provided in the blob descriptor, it is used as the object key
+  - Otherwise, the device ID is converted to a string and used as the object key
+- This mapping is used during transfer operations to locate the correct S3 object
+
+### Read Operations
+
+- Read operations support reading from a specific offset within an object
+- The offset is specified in the remote metadata's `addr` field
+- The read operation will fetch data starting from this offset
+- The amount of data read is determined by the `len` field in the local metadata
+
+### Write Operations
+
+- Write operations currently do not support offsets
+- Attempting to write with a non-zero offset will result in an error
+- The entire object is written at once
+- The data to write is taken from the local memory buffer specified in the local metadata
+
+### Asynchronous Operations
+
+- All transfer operations are asynchronous
+- The backend uses a thread pool executor for handling async operations
+- Operation completion is tracked through the request handle
+- The `checkXfer` function can be used to poll for operation completion
+- The request handle must be released using `releaseReqH` after the operation is complete
