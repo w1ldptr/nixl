@@ -94,7 +94,7 @@ public:
 private:
     std::shared_ptr<AsioThreadPoolExecutor> executor_;
     std::shared_ptr<IS3Client> s3_client_;
-    std::unordered_map<uint64_t, std::string> dev_id_to_obj_key;
+    std::unordered_map<uint64_t, std::string> dev_id_to_obj_key_;
 };
 
 #endif // OBJ_BACKEND_H

@@ -140,11 +140,9 @@ protected:
         }
 
         nixlMetaDesc local_meta_desc (reinterpret_cast<uintptr_t> (test_buffer.data()), test_buffer.size(), 1);
-        local_meta_desc.metadataP = local_metadata;
         local_descs.addDesc (local_meta_desc);
 
         nixlMetaDesc remote_meta_desc (0, test_buffer.size(), 2);
-        remote_meta_desc.metadataP = remote_metadata;
         remote_descs.addDesc (remote_meta_desc);
 
         nixlBackendReqH *handle = nullptr;
@@ -262,11 +260,9 @@ TEST_F (ObjTestFixture, CancelTransfer) {
     }
 
     nixlMetaDesc local_meta_desc (reinterpret_cast<uintptr_t> (test_buffer.data()), test_buffer.size(), 1);
-    local_meta_desc.metadataP = local_metadata;
     local_descs.addDesc (local_meta_desc);
 
     nixlMetaDesc remote_meta_desc (0, test_buffer.size(), 2);
-    remote_meta_desc.metadataP = remote_metadata;
     remote_descs.addDesc (remote_meta_desc);
 
     nixlBackendReqH *handle = nullptr;

@@ -80,7 +80,7 @@ nixlObjEngine::registerMem (const nixlBlobDesc &mem,
     } else {
         obj_md->obj_key = mem.metaInfo;
     }
-    dev_id_to_obj_key[mem.devId] = obj_md->obj_key;
+    dev_id_to_obj_key_[mem.devId] = obj_md->obj_key;
 
     out = obj_md.release();
     return NIXL_SUCCESS;
@@ -91,7 +91,7 @@ nixlObjEngine::deregisterMem (nixlBackendMD *meta) {
     nixlObjMetadata *obj_md = static_cast<nixlObjMetadata *> (meta);
     if (obj_md && obj_md->nixl_mem == OBJ_SEG) {
         std::unique_ptr<nixlObjMetadata> obj_md_ptr = std::unique_ptr<nixlObjMetadata> (obj_md);
-        dev_id_to_obj_key.erase (obj_md->dev_id);
+        dev_id_to_obj_key_.erase (obj_md->dev_id);
     }
 
     return NIXL_SUCCESS;
@@ -116,17 +116,10 @@ nixlObjEngine::postXfer (const nixl_xfer_op_t &operation,
                          const std::string &remote_agent,
                          nixlBackendReqH *&handle,
                          const nixl_opt_b_args_t *opt_args) const {
-    nixlObjBackendReqH *req_h = static_cast<nixlObjBackendReqH *> (handle);
 
-    nixlObjMetadata* obj_md = static_cast<nixlObjMetadata*> (remote.begin()->metadataP);
-    if (!obj_md) {
-        NIXL_ERROR << "No metadata found for remote descriptor";
-        return NIXL_ERR_INVALID_PARAM;
-    }
-
-    std::string obj_key = obj_md->obj_key;
-    if (obj_key.empty()) {
-        NIXL_ERROR << "No object key found for device ID: " << obj_md->dev_id;
+    auto obj_key_search = dev_id_to_obj_key_.find(remote.begin()->devId);
+    if (obj_key_search == dev_id_to_obj_key_.end()) {
+        NIXL_ERROR << "No object key found for device ID: " << remote.begin()->devId;
         return NIXL_ERR_INVALID_PARAM;
     }
 
@@ -134,10 +127,11 @@ nixlObjEngine::postXfer (const nixl_xfer_op_t &operation,
     size_t data_len = local.begin()->len;
     size_t offset = remote.begin()->addr;
 
+    nixlObjBackendReqH *req_h = static_cast<nixlObjBackendReqH *> (handle);
     req_h->completed_ = false;
     if (operation == NIXL_WRITE) {
         s3_client_->PutObjectAsync(
-            obj_key,
+            obj_key_search->second,
             data_ptr,
             data_len,
             offset,
@@ -148,7 +142,7 @@ nixlObjEngine::postXfer (const nixl_xfer_op_t &operation,
         );
     } else if (operation == NIXL_READ) {
         s3_client_->GetObjectAsync(
-            obj_key,
+            obj_key_search->second,
             data_ptr,
             data_len,
             offset,
