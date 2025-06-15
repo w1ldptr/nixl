@@ -85,16 +85,20 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        nixlBlobDesc dram_buf;
-        std::string test_data = "test data";
-        dram_buf.addr = (uintptr_t)(test_data.c_str());
-        dram_buf.len = test_data.size();
-        dram_buf.devId = 0;
+        std::string test_data_str0 = "test data 0";
+        std::string test_data0 = test_data_str0;
+        nixlBlobDesc dram_buf0((uintptr_t)test_data0.c_str(), test_data0.size(), 0);
+
+        std::string test_data_str1 = "test data 1";
+        std::string test_data1 = test_data_str1;
+        nixlBlobDesc dram_buf1((uintptr_t)test_data1.c_str(), test_data1.size(), 0);
 
         nixl_reg_dlist_t dram_reg(DRAM_SEG);
-        dram_reg.addDesc (dram_buf);
+        dram_reg.addDesc (dram_buf0);
+        dram_reg.addDesc (dram_buf1);
         nixl_xfer_dlist_t dram_xfer(DRAM_SEG);
-        dram_xfer.addDesc (dram_buf);
+        dram_xfer.addDesc (dram_buf0);
+        dram_xfer.addDesc (dram_buf1);
 
         nixl_status_t ret = agent.registerMem(dram_reg);
         if (ret != NIXL_SUCCESS) {
@@ -102,16 +106,15 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        nixlBlobDesc obj_buf;
-        obj_buf.addr = 0;
-        obj_buf.len = test_data.size();
-        obj_buf.devId = 0;
-        obj_buf.metaInfo = "test-key";
+        nixlBlobDesc obj_buf0(0, test_data0.size(), 0, "test-key-0");
+        nixlBlobDesc obj_buf1(0, test_data1.size(), 1, "test-key-1");
 
         nixl_reg_dlist_t obj_reg(OBJ_SEG);
-        obj_reg.addDesc (obj_buf);
+        obj_reg.addDesc (obj_buf0);
+        obj_reg.addDesc (obj_buf1);
         nixl_xfer_dlist_t obj_xfer(OBJ_SEG);
-        obj_xfer.addDesc (obj_buf);
+        obj_xfer.addDesc (obj_buf0);
+        obj_xfer.addDesc (obj_buf1);
 
         ret = agent.registerMem(obj_reg);
         if (ret != NIXL_SUCCESS) {
@@ -145,10 +148,14 @@ int main(int argc, char *argv[])
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         } while (status == NIXL_IN_PROG);
 
-        for (char &c : test_data) {
+        for (char &c : test_data0) {
             c = std::toupper(c);
         }
-        std::cout << "Test data: " << test_data << std::endl;
+        for (char &c : test_data1) {
+            c = std::toupper(c);
+        }
+        std::cout << "Modify local test_data0 after reading, to: " << test_data0 << std::endl;
+        std::cout << "Modify local test_data1 after reading, to: " << test_data1 << std::endl;
 
         treq = nullptr;
         status = agent.createXferReq(NIXL_READ, dram_xfer, obj_xfer,
@@ -176,8 +183,9 @@ int main(int argc, char *argv[])
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         } while (status == NIXL_IN_PROG);
 
-        std::cout << "Test data: " << test_data << std::endl;
-        if (test_data != "test data") {
+        std::cout << "After write, test_data0: " << test_data0 << std::endl;
+        std::cout << "After write, test_data1: " << test_data1 << std::endl;
+        if (test_data0 != test_data_str0 || test_data1 != test_data_str1) {
             std::cerr << "Test data mismatch" << std::endl;
             return 1;
         }
