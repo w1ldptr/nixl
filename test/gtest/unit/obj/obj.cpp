@@ -147,12 +147,17 @@ protected:
 
         nixlBackendReqH *handle = nullptr;
 
-        ASSERT_EQ (obj_engine_->prepXfer (operation, local_descs, remote_descs,
-                                         "remote-agent", handle, nullptr), NIXL_SUCCESS);
+        ASSERT_EQ (obj_engine_->prepXfer (operation,
+                                          local_descs,
+                                          remote_descs,
+                                          init_params_.localAgent,
+                                          handle,
+                                          nullptr),
+                   NIXL_SUCCESS);
         ASSERT_NE (handle, nullptr);
 
-        nixl_status_t status = obj_engine_->postXfer (operation, local_descs, remote_descs,
-                                                     "remote-agent", handle, nullptr);
+        nixl_status_t status = obj_engine_->postXfer (
+                operation, local_descs, remote_descs, init_params_.localAgent, handle, nullptr);
         EXPECT_EQ (status, NIXL_IN_PROG);
         EXPECT_EQ (mock_s3_client_->getPendingCount(), 1);
         status = obj_engine_->checkXfer (handle);
@@ -267,8 +272,13 @@ TEST_F (ObjTestFixture, CancelTransfer) {
 
     nixlBackendReqH *handle = nullptr;
 
-    ASSERT_EQ (obj_engine_->prepXfer (NIXL_WRITE, local_descs, remote_descs,
-                                     "remote-agent", handle, nullptr), NIXL_SUCCESS);
+    ASSERT_EQ (obj_engine_->prepXfer (NIXL_WRITE,
+                                      local_descs,
+                                      remote_descs,
+                                      init_params_.localAgent,
+                                      handle,
+                                      nullptr),
+               NIXL_SUCCESS);
     ASSERT_NE (handle, nullptr);
 
     nixl_status_t status = obj_engine_->postXfer (NIXL_WRITE, local_descs, remote_descs,
