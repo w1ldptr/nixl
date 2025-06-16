@@ -166,16 +166,16 @@ AwsS3Client::PutObjectAsync (std::string_view key,
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket (bucket_name_).WithKey (Aws::String (key));
 
-    // TODO: fix this to avoid copying data
-    auto data_stream = Aws::MakeShared<Aws::StringStream> (
-            "PutObjectInputStream",
-            std::stringstream::in | std::stringstream::out | std::stringstream::binary);
-    data_stream->write (reinterpret_cast<const char *> (data_ptr), data_len);
-    request.SetBody (data_stream);
+    auto preallocated_stream_buf = Aws::MakeShared<Aws::Utils::Stream::PreallocatedStreamBuf>(
+            "PutObjectStreamBuf",
+            reinterpret_cast<unsigned char*>(data_ptr),
+            data_len);
+    auto data_stream = Aws::MakeShared<Aws::IOStream>("PutObjectInputStream", preallocated_stream_buf.get());
+    request.SetBody(data_stream);
 
     s3_client_->PutObjectAsync (
             request,
-            [callback] (const Aws::S3::S3Client *client,
+            [callback, preallocated_stream_buf, data_stream] (const Aws::S3::S3Client *client,
                         const Aws::S3::Model::PutObjectRequest &req,
                         const Aws::S3::Model::PutObjectOutcome &outcome,
                         const std::shared_ptr<const Aws::Client::AsyncCallerContext> &context) {
