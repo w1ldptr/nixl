@@ -61,11 +61,11 @@ public:
                     size_t data_len,
                     size_t offset,
                     GetObjectCallback callback) override {
-        pending_callbacks_.push_back([callback, data_ptr, data_len, this]() {
+        pending_callbacks_.push_back([callback, data_ptr, data_len, offset, this]() {
             if (simulate_success_ && data_ptr && data_len > 0) {
                 char *buffer = reinterpret_cast<char *> (data_ptr);
                 for (size_t i = 0; i < data_len; ++i) {
-                    buffer[i] = static_cast<char> ('A' + (i % 26));
+                    buffer[i] = static_cast<char> ('A' + ((i + offset) % 26));
                 }
             }
             callback (simulate_success_);
@@ -174,6 +174,80 @@ protected:
         obj_engine_->releaseReqH (handle);
         obj_engine_->deregisterMem (local_metadata);
         obj_engine_->deregisterMem (remote_metadata);
+    }
+
+    void testMultiDescriptorTransfer(nixl_xfer_op_t operation) {
+        mock_s3_client_->setSimulateSuccess(true);
+
+        std::vector<char> test_buffer0(1024);
+        std::vector<char> test_buffer1(1024);
+        if (operation == NIXL_WRITE) {
+            for (size_t i = 0; i < test_buffer0.size(); ++i) {
+                test_buffer0[i] = static_cast<char>('X' + (i % 3));
+            }
+            for (size_t i = 0; i < test_buffer1.size(); ++i) {
+                test_buffer1[i] = static_cast<char>('x' + (i % 3));
+            }
+        }
+
+        nixlBlobDesc local_desc0, local_desc1;
+        local_desc0.devId = 1;
+        local_desc1.devId = 1;
+        nixlBackendMD *local_metadata0 = nullptr;
+        nixlBackendMD *local_metadata1 = nullptr;
+
+        ASSERT_EQ(obj_engine_->registerMem(local_desc0, DRAM_SEG, local_metadata0), NIXL_SUCCESS);
+        ASSERT_EQ(obj_engine_->registerMem(local_desc1, DRAM_SEG, local_metadata1), NIXL_SUCCESS);
+
+        nixlBlobDesc remote_desc0, remote_desc1;
+        remote_desc0.devId = 2;
+        remote_desc1.devId = 3;
+        remote_desc0.metaInfo = (operation == NIXL_READ) ? "test-read-key0" : "test-write-key0";
+        remote_desc1.metaInfo = (operation == NIXL_READ) ? "test-read-key1" : "test-write-key1";
+        nixlBackendMD *remote_metadata0 = nullptr;
+        nixlBackendMD *remote_metadata1 = nullptr;
+
+        ASSERT_EQ(obj_engine_->registerMem(remote_desc0, OBJ_SEG, remote_metadata0), NIXL_SUCCESS);
+        ASSERT_EQ(obj_engine_->registerMem(remote_desc1, OBJ_SEG, remote_metadata1), NIXL_SUCCESS);
+
+        nixl_meta_dlist_t local_descs(DRAM_SEG, false);
+        nixl_meta_dlist_t remote_descs(OBJ_SEG, false);
+
+        nixlMetaDesc local_meta_desc0(reinterpret_cast<uintptr_t>(test_buffer0.data()), test_buffer0.size(), local_desc0.devId);
+        nixlMetaDesc local_meta_desc1(reinterpret_cast<uintptr_t>(test_buffer1.data()), test_buffer1.size(), local_desc1.devId);
+        local_descs.addDesc(local_meta_desc0);
+        local_descs.addDesc(local_meta_desc1);
+
+        nixlMetaDesc remote_meta_desc0(0, test_buffer0.size(), remote_desc0.devId);
+        nixlMetaDesc remote_meta_desc1(0, test_buffer1.size(), remote_desc1.devId);
+        remote_descs.addDesc(remote_meta_desc0);
+        remote_descs.addDesc(remote_meta_desc1);
+
+        nixlBackendReqH *handle = nullptr;
+        ASSERT_EQ(obj_engine_->prepXfer(operation, local_descs, remote_descs, init_params_.localAgent, handle, nullptr),
+                  NIXL_SUCCESS);
+        ASSERT_NE(handle, nullptr);
+
+        nixl_status_t status = obj_engine_->postXfer(operation, local_descs, remote_descs, init_params_.localAgent, handle, nullptr);
+        EXPECT_EQ(status, NIXL_IN_PROG);
+        EXPECT_EQ(mock_s3_client_->getPendingCount(), 2);
+        status = obj_engine_->checkXfer(handle);
+        EXPECT_EQ(status, NIXL_IN_PROG);
+
+        mock_s3_client_->execAsync();
+        status = obj_engine_->checkXfer(handle);
+        EXPECT_EQ(status, NIXL_SUCCESS);
+
+        if (operation == NIXL_READ) {
+            EXPECT_EQ(test_buffer0[0], 'A');
+            EXPECT_EQ(test_buffer1[0], 'A');
+        }
+
+        obj_engine_->releaseReqH(handle);
+        obj_engine_->deregisterMem(local_metadata0);
+        obj_engine_->deregisterMem(local_metadata1);
+        obj_engine_->deregisterMem(remote_metadata0);
+        obj_engine_->deregisterMem(remote_metadata1);
     }
 };
 
@@ -304,12 +378,67 @@ TEST_F (ObjTestFixture, CancelTransfer) {
     EXPECT_EQ (status, NIXL_SUCCESS);
 }
 
+TEST_F (ObjTestFixture, ReadFromOffset) {
+    mock_s3_client_->setSimulateSuccess(true);
+
+    std::vector<char> test_buffer(1024);
+
+    nixlBlobDesc local_desc;
+    local_desc.devId = 1;
+    nixlBackendMD *local_metadata = nullptr;
+    ASSERT_EQ(obj_engine_->registerMem(local_desc, DRAM_SEG, local_metadata), NIXL_SUCCESS);
+
+    nixlBlobDesc remote_desc;
+    remote_desc.devId = 2;
+    remote_desc.metaInfo = "test-offset-key";
+    nixlBackendMD *remote_metadata = nullptr;
+    ASSERT_EQ(obj_engine_->registerMem(remote_desc, OBJ_SEG, remote_metadata), NIXL_SUCCESS);
+
+    nixl_meta_dlist_t local_descs(DRAM_SEG, false);
+    nixl_meta_dlist_t remote_descs(OBJ_SEG, false);
+
+    const size_t offset = 256;
+    const size_t length = 512;
+    nixlMetaDesc local_meta_desc(reinterpret_cast<uintptr_t>(test_buffer.data()), length, local_desc.devId);
+    nixlMetaDesc remote_meta_desc(offset, length, remote_desc.devId);
+    local_descs.addDesc(local_meta_desc);
+    remote_descs.addDesc(remote_meta_desc);
+
+    nixlBackendReqH *handle = nullptr;
+    ASSERT_EQ(obj_engine_->prepXfer(NIXL_READ, local_descs, remote_descs, init_params_.localAgent, handle, nullptr),
+                NIXL_SUCCESS);
+    ASSERT_NE(handle, nullptr);
+
+    nixl_status_t status = obj_engine_->postXfer(NIXL_READ, local_descs, remote_descs, init_params_.localAgent, handle, nullptr);
+    EXPECT_EQ(status, NIXL_IN_PROG);
+    EXPECT_EQ(mock_s3_client_->getPendingCount(), 1);
+    status = obj_engine_->checkXfer(handle);
+    EXPECT_EQ(status, NIXL_IN_PROG);
+
+    mock_s3_client_->execAsync();
+    status = obj_engine_->checkXfer(handle);
+    EXPECT_EQ(status, NIXL_SUCCESS);
+    EXPECT_EQ(test_buffer[0], 'A' + (offset % 26));
+
+    obj_engine_->releaseReqH(handle);
+    obj_engine_->deregisterMem(local_metadata);
+    obj_engine_->deregisterMem(remote_metadata);
+}
+
 TEST_F (ObjTestFixture, AsyncReadTransferWithControlledExecution) {
     testAsyncTransferWithControlledExecution(NIXL_READ);
 }
 
 TEST_F (ObjTestFixture, AsyncWriteTransferWithControlledExecution) {
     testAsyncTransferWithControlledExecution(NIXL_WRITE);
+}
+
+TEST_F (ObjTestFixture, MultiDescriptorWrite) {
+    testMultiDescriptorTransfer(NIXL_READ);
+}
+
+TEST_F (ObjTestFixture, MultiDescriptorRead) {
+    testMultiDescriptorTransfer(NIXL_WRITE);
 }
 
 } // namespace gtest::obj
