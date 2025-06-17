@@ -46,12 +46,6 @@ isValidPrepXferParams (const nixl_xfer_op_t &operation,
         return false;
     }
 
-    if (local.descCount() != remote.descCount()) {
-        NIXL_ERROR << absl::StrFormat("Error: Mismatch in descriptor counts - local: %d, remote: %d",
-                                    local.descCount(), remote.descCount());
-        return false;
-    }
-
     return true;
 }
 
