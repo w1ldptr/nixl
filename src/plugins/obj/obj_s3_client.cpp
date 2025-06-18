@@ -2,7 +2,7 @@
 #include <aws/core/utils/stream/PreallocatedStreamBuf.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <aws/s3/model/GetObjectRequest.h>
-#include <sstream>
+#include <absl/strings/str_format.h>
 #include "nixl_types.h"
 
 namespace {
@@ -193,12 +193,9 @@ AwsS3Client::GetObjectAsync (std::string_view key,
     Aws::S3::Model::GetObjectRequest request;
     request.WithBucket (bucket_name_).WithKey (Aws::String (key));
 
-    // TODO: fix this to support partial get operations with offset
-    if (offset != 0) {
-        callback(false);
-        return;
+    if (offset > 0) {
+        request.SetRange(absl::StrFormat("bytes=%d-%d", offset, offset + data_len - 1));
     }
-
 
     s3_client_->GetObjectAsync (
             request,

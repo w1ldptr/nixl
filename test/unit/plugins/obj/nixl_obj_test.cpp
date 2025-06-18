@@ -106,8 +106,10 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        nixlBlobDesc obj_buf0(0, test_data0.size(), 0, "test-key-0");
-        nixlBlobDesc obj_buf1(0, test_data1.size(), 1, "test-key-1");
+        std::string test_key0 = "test-key-0";
+        std::string test_key1 = "test-key-1";
+        nixlBlobDesc obj_buf0(0, test_data0.size(), 0, test_key0);
+        nixlBlobDesc obj_buf1(0, test_data1.size(), 1, test_key1);
 
         nixl_reg_dlist_t obj_reg(OBJ_SEG);
         obj_reg.addDesc (obj_buf0);
@@ -157,6 +159,15 @@ int main(int argc, char *argv[])
         std::cout << "Modify local test_data0 after reading, to: " << test_data0 << std::endl;
         std::cout << "Modify local test_data1 after reading, to: " << test_data1 << std::endl;
 
+        int data_offset = 5;
+        int data_length = test_data1.size() - data_offset;
+        nixlBlobDesc obj_buf1_with_offset(data_offset, data_length, 1, test_key1);
+        nixlBlobDesc dram_buf1_with_offset((uintptr_t)test_data1.c_str(), data_length, 0);
+        obj_xfer.remDesc (1); // Remove the original obj_buf1 descriptor
+        obj_xfer.addDesc (obj_buf1_with_offset);
+        dram_xfer.remDesc (1); // Remove the original dram_buf1 descriptor
+        dram_xfer.addDesc (dram_buf1_with_offset);
+
         treq = nullptr;
         status = agent.createXferReq(NIXL_READ, dram_xfer, obj_xfer,
                                      "ObjTester", treq);
@@ -185,7 +196,8 @@ int main(int argc, char *argv[])
 
         std::cout << "After write, test_data0: " << test_data0 << std::endl;
         std::cout << "After write, test_data1: " << test_data1 << std::endl;
-        if (test_data0 != test_data_str0 || test_data1 != test_data_str1) {
+        if (test_data0 != test_data_str0 ||
+            test_data1.substr(0, data_length) != test_data_str1.substr(data_offset, data_length)) {
             std::cerr << "Test data mismatch" << std::endl;
             return 1;
         }
