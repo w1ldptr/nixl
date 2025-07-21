@@ -99,6 +99,7 @@ public:
           nixlMem(nixl_mem),
           devId(dev_id),
           objKey(obj_key) {}
+
     ~nixlObjMetadata() = default;
 
     nixl_mem_t nixlMem;
@@ -157,6 +158,23 @@ nixlObjEngine::deregisterMem(nixlBackendMD *meta) {
     if (obj_md) {
         std::unique_ptr<nixlObjMetadata> obj_md_ptr = std::unique_ptr<nixlObjMetadata>(obj_md);
         devIdToObjKey_.erase(obj_md->devId);
+    }
+
+    return NIXL_SUCCESS;
+}
+
+nixl_status_t
+nixlObjEngine::queryMem(const nixl_reg_dlist_t &descs, std::vector<nixl_query_resp_t> &resp) const {
+    std::vector<nixl_blob_t> metadata;
+    descs.extractMetadata(metadata);
+
+    try {
+        for (const auto &metadata : metadata)
+            resp.push_back({s3Client_->CheckObjectExists(metadata), {}});
+    }
+    catch (const std::runtime_error &e) {
+        NIXL_ERROR << "Failed to query memory: " << e.what();
+        return NIXL_ERR_BACKEND;
     }
 
     return NIXL_SUCCESS;
