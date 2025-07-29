@@ -456,4 +456,12 @@ nixl_capi_query_resp_list_get_params(nixl_capi_query_resp_list_t list,
     return nixl_capi_stub_abort();
 }
 
+nixl_capi_status_t
+nixl_capi_query_mem(nixl_capi_agent_t agent,
+                    nixl_capi_reg_dlist_t descs,
+                    nixl_capi_query_resp_list_t resp,
+                    nixl_capi_opt_args_t opt_args) {
+    return nixl_capi_stub_abort();
+}
+
 }  // extern "C"
