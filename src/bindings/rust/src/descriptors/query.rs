@@ -71,7 +71,7 @@ impl QueryResponseList {
         Ok(QueryResponse { list: self, index })
     }
 
-    /// Iterates over all responses in the list
+    /// Returns an iterator
     pub fn iter(&self) -> Result<QueryResponseIterator<'_>, NixlError> {
         Ok(QueryResponseIterator {
             list: self,
