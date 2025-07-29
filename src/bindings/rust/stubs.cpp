@@ -298,9 +298,13 @@ nixl_capi_destroy_reg_dlist(nixl_capi_reg_dlist_t dlist)
 }
 
 nixl_capi_status_t
-nixl_capi_reg_dlist_add_desc(nixl_capi_reg_dlist_t dlist, uintptr_t addr, size_t len, uint64_t dev_id)
-{
-  return nixl_capi_stub_abort();
+nixl_capi_reg_dlist_add_desc(nixl_capi_reg_dlist_t dlist,
+                             uintptr_t addr,
+                             size_t len,
+                             uint64_t dev_id,
+                             const void *metadata,
+                             size_t metadata_len) {
+    return nixl_capi_stub_abort();
 }
 
 nixl_capi_status_t
@@ -421,6 +425,35 @@ nixl_capi_status_t
 nixl_capi_notif_map_clear(nixl_capi_notif_map_t map)
 {
   return nixl_capi_stub_abort();
+}
+
+nixl_capi_status_t
+nixl_capi_create_query_resp_list(nixl_capi_query_resp_list_t *list) {
+    return nixl_capi_stub_abort();
+}
+
+nixl_capi_status_t
+nixl_capi_destroy_query_resp_list(nixl_capi_query_resp_list_t list) {
+    return nixl_capi_stub_abort();
+}
+
+nixl_capi_status_t
+nixl_capi_query_resp_list_size(nixl_capi_query_resp_list_t list, size_t *size) {
+    return nixl_capi_stub_abort();
+}
+
+nixl_capi_status_t
+nixl_capi_query_resp_list_has_value(nixl_capi_query_resp_list_t list,
+                                    size_t index,
+                                    bool *has_value) {
+    return nixl_capi_stub_abort();
+}
+
+nixl_capi_status_t
+nixl_capi_query_resp_list_get_params(nixl_capi_query_resp_list_t list,
+                                     size_t index,
+                                     nixl_capi_params_t *params) {
+    return nixl_capi_stub_abort();
 }
 
 }  // extern "C"
