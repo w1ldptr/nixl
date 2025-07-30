@@ -133,6 +133,27 @@ getBucketName(nixl_b_params_t *custom_params) {
                              "set AWS_DEFAULT_BUCKET environment variable");
 }
 
+std::unique_ptr<Aws::S3::S3Client>
+createS3Client(nixl_b_params_t *custom_params,
+               std::shared_ptr<Aws::Utils::Threading::Executor> executor) {
+    auto config = ::createClientConfiguration(custom_params);
+    if (executor) config.executor = executor;
+
+    auto credentials_opt = ::createAWSCredentials(custom_params);
+    bool use_virtual_addressing = ::getUseVirtualAddressing(custom_params);
+
+    return credentials_opt.has_value() ?
+        std::make_unique<Aws::S3::S3Client>(
+            credentials_opt.value(),
+            config,
+            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent,
+            use_virtual_addressing) :
+        std::make_unique<Aws::S3::S3Client>(
+            config,
+            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent,
+            use_virtual_addressing);
+}
+
 } // namespace
 
 awsS3Client::awsS3Client(nixl_b_params_t *custom_params,
@@ -146,26 +167,9 @@ awsS3Client::awsS3Client(nixl_b_params_t *custom_params,
           [](Aws::SDKOptions *opts) {
               Aws::ShutdownAPI(*opts);
               delete opts;
-          }) {
-    auto config = ::createClientConfiguration(custom_params);
-    if (executor) config.executor = executor;
-
-    auto credentials_opt = ::createAWSCredentials(custom_params);
-    bool use_virtual_addressing = ::getUseVirtualAddressing(custom_params);
-    bucketName_ = Aws::String(::getBucketName(custom_params));
-
-    if (credentials_opt.has_value())
-        s3Client_ = std::make_unique<Aws::S3::S3Client>(
-            credentials_opt.value(),
-            config,
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent,
-            use_virtual_addressing);
-    else
-        s3Client_ = std::make_unique<Aws::S3::S3Client>(
-            config,
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent,
-            use_virtual_addressing);
-}
+          }),
+      s3Client_(::createS3Client(custom_params, executor)),
+      bucketName_(Aws::String(::getBucketName(custom_params))) {}
 
 void
 awsS3Client::setExecutor(std::shared_ptr<Aws::Utils::Threading::Executor> executor) {
