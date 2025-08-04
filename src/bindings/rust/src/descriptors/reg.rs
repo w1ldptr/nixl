@@ -81,7 +81,7 @@ impl<'a> RegDescList<'a> {
                 addr as uintptr_t,
                 len,
                 dev_id,
-                metadata.as_ptr() as *const _,
+                metadata.as_ptr() as *const c_void,
                 metadata.len(),
             )
         };
