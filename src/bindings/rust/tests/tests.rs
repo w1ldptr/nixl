@@ -21,6 +21,40 @@
 
 use nixl_sys::*;
 
+/// Helper function to create and initialize a POSIX backend with optional arguments
+/// Returns (backend, opt_args) if POSIX is available, or None if not available
+fn create_posix_backend(agent: &Agent) -> Option<(Backend, OptArgs)> {
+    // Get available plugins - check if POSIX is available
+    let plugins = agent
+        .get_available_plugins()
+        .expect("Failed to get plugins");
+
+    if !plugins
+        .iter()
+        .any(|p| p.as_ref().map(|s| *s == "POSIX").unwrap_or(false))
+    {
+        println!("POSIX plugin not available, skipping test");
+        return None;
+    }
+
+    // Get plugin parameters and create POSIX backend
+    let (_mems, params) = agent
+        .get_plugin_params("POSIX")
+        .expect("Failed to get POSIX plugin params");
+
+    let backend = agent
+        .create_backend("POSIX", &params)
+        .expect("Failed to create POSIX backend");
+
+    // Create optional arguments with the backend
+    let mut opt_args = OptArgs::new().expect("Failed to create opt args");
+    opt_args
+        .add_backend(&backend)
+        .expect("Failed to add backend");
+
+    Some((backend, opt_args))
+}
+
 #[test]
 fn test_agent_creation() {
     let agent = Agent::new("test_agent").expect("Failed to create agent");
@@ -438,69 +472,64 @@ fn test_query_mem_with_files() {
     use std::fs::File;
     use std::io::Write;
 
+    // Constants
+    const DESCRIPTOR_ADDR: usize = 0;
+    const DESCRIPTOR_SIZE: usize = 1024;
+    const DESCRIPTOR_DEV_ID: u64 = 0;
+    const NUM_FILES_TO_CREATE: usize = 2;
+    const EXPECTED_NUM_RESPONSES: usize = 3;
+
     // Create a unique temporary directory for this test
     let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
     let temp_dir_path = temp_dir.path();
 
-    // Create temporary test files
-    let test_file1 = temp_dir_path.join("test_query_mem_rust_1.txt");
-    let test_file2 = temp_dir_path.join("test_query_mem_rust_2.txt");
-    let non_existent_file = temp_dir_path.join("non_existent_file_rust.txt");
+    // Define test files
+    let test_files = vec![
+        ("test_query_mem_rust_1.txt", "Test content for file 1"),
+        ("test_query_mem_rust_2.txt", "Test content for file 2"),
+        ("non_existent_file_rust.txt", ""), // This file won't be created
+    ];
 
-    {
-        let mut file = File::create(&test_file1).expect("Failed to create test file 1");
-        writeln!(file, "Test content for file 1").expect("Failed to write to file 1");
-    }
-    {
-        let mut file = File::create(&test_file2).expect("Failed to create test file 2");
-        writeln!(file, "Test content for file 2").expect("Failed to write to file 2");
-    }
+    // Create temporary test files
+    let mut file_paths: Vec<_> = test_files
+        .iter()
+        .take(NUM_FILES_TO_CREATE) // Only create the first two files
+        .map(|(filename, content)| {
+            let file_path = temp_dir_path.join(filename);
+            let mut file =
+                File::create(&file_path).expect(&format!("Failed to create {}", filename));
+            writeln!(file, "{}", content).expect(&format!("Failed to write to {}", filename));
+            file_path
+        })
+        .collect();
+
+    // Add the non-existent file path
+    file_paths.push(temp_dir_path.join(test_files[2].0));
 
     // Create agent
     let agent = Agent::new("test_agent").expect("Failed to create agent");
 
-    // Get available plugins - check if POSIX is available
-    let plugins = agent
-        .get_available_plugins()
-        .expect("Failed to get plugins");
-
-    if !plugins
-        .iter()
-        .any(|p| p.as_ref().map(|s| *s == "POSIX").unwrap_or(false))
-    {
-        println!("POSIX plugin not available, skipping test");
-        return;
-    }
-
-    // Get plugin parameters and create POSIX backend
-    let (_mems, params) = agent
-        .get_plugin_params("POSIX")
-        .expect("Failed to get POSIX plugin params");
-
-    let backend = agent
-        .create_backend("POSIX", &params)
-        .expect("Failed to create POSIX backend");
+    // Create POSIX backend
+    let (_backend, opt_args) = match create_posix_backend(&agent) {
+        Some(result) => result,
+        None => return,
+    };
 
     // Create descriptor list with existing and non-existing files
     let mut descs =
         RegDescList::new(MemType::File, false).expect("Failed to create descriptor list");
 
     // Add blob descriptors with filenames as metadata
-    descs
-        .add_desc_with_meta(0, 1024, 0, test_file1.to_string_lossy().as_bytes())
-        .expect("Failed to add descriptor for test file 1");
-    descs
-        .add_desc_with_meta(0, 1024, 0, non_existent_file.to_string_lossy().as_bytes())
-        .expect("Failed to add descriptor for non-existent file");
-    descs
-        .add_desc_with_meta(0, 1024, 0, test_file2.to_string_lossy().as_bytes())
-        .expect("Failed to add descriptor for test file 2");
-
-    // Create optional arguments with the backend
-    let mut opt_args = OptArgs::new().expect("Failed to create opt args");
-    opt_args
-        .add_backend(&backend)
-        .expect("Failed to add backend");
+    for (i, file_path) in file_paths.iter().enumerate() {
+        descs
+            .add_desc_with_meta(
+                DESCRIPTOR_ADDR,
+                DESCRIPTOR_SIZE,
+                DESCRIPTOR_DEV_ID,
+                file_path.to_string_lossy().as_bytes(),
+            )
+            .expect(&format!("Failed to add descriptor for file {}", i + 1));
+    }
 
     // Query memory
     let resp = agent
@@ -508,20 +537,24 @@ fn test_query_mem_with_files() {
         .expect("Failed to query mem");
 
     // Verify results
-    assert_eq!(resp.len().unwrap(), 3, "Expected 3 responses");
+    assert_eq!(
+        resp.len().unwrap(),
+        EXPECTED_NUM_RESPONSES,
+        "Expected 3 responses"
+    );
 
-    // Check responses - matching the C++ test behavior:
-    // - First response should have a value (existing file)
-    // - Second response should not have a value (non-existent file)
-    // - Third response should have a value (existing file)
+    // Check responses - current order: existing file, existing file, non-existent file
     let responses: Vec<_> = resp.iter().unwrap().collect();
 
     assert!(responses[0].has_value().unwrap(), "First file should exist");
     assert!(
-        !responses[1].has_value().unwrap(),
-        "Second file should not exist"
+        responses[1].has_value().unwrap(),
+        "Second file should exist"
     );
-    assert!(responses[2].has_value().unwrap(), "Third file should exist");
+    assert!(
+        !responses[2].has_value().unwrap(),
+        "Third file should not exist"
+    );
 
     // Print parameters for existing files
     for (i, response) in responses.iter().enumerate() {
@@ -546,39 +579,20 @@ fn test_query_mem_with_files() {
 
 #[test]
 fn test_query_mem_empty_list() {
+    // Constants
+    const EXPECTED_EMPTY_RESPONSES: usize = 0;
+
     // Create agent
     let agent = Agent::new("test_agent").expect("Failed to create agent");
 
-    // Get available plugins - check if POSIX is available
-    let plugins = agent
-        .get_available_plugins()
-        .expect("Failed to get plugins");
-
-    if !plugins
-        .iter()
-        .any(|p| p.as_ref().map(|s| *s == "POSIX").unwrap_or(false))
-    {
-        println!("POSIX plugin not available, skipping test");
-        return;
-    }
-
-    // Get plugin parameters and create POSIX backend
-    let (_mems, params) = agent
-        .get_plugin_params("POSIX")
-        .expect("Failed to get POSIX plugin params");
-
-    let backend = agent
-        .create_backend("POSIX", &params)
-        .expect("Failed to create POSIX backend");
+    // Create POSIX backend
+    let (_backend, opt_args) = match create_posix_backend(&agent) {
+        Some(result) => result,
+        None => return,
+    };
 
     // Create empty descriptor list
     let descs = RegDescList::new(MemType::File, false).expect("Failed to create descriptor list");
-
-    // Create optional arguments with the backend
-    let mut opt_args = OptArgs::new().expect("Failed to create opt args");
-    opt_args
-        .add_backend(&backend)
-        .expect("Failed to add backend");
 
     // Query memory with empty list
     let resp = agent
@@ -588,7 +602,7 @@ fn test_query_mem_empty_list() {
     // Verify results
     let num_responses = resp.len().expect("Failed to get response count");
     assert_eq!(
-        num_responses, 0,
+        num_responses, EXPECTED_EMPTY_RESPONSES,
         "Expected 0 responses for empty descriptor list"
     );
 }
