@@ -48,23 +48,7 @@ impl<'a> RegDescList<'a> {
 
     /// Adds a descriptor to the list
     pub fn add_desc(&mut self, addr: usize, len: usize, dev_id: u64) -> Result<(), NixlError> {
-        // Call with null metadata for backward compatibility
-        let status = unsafe {
-            nixl_capi_reg_dlist_add_desc(
-                self.inner.as_ptr(),
-                addr as uintptr_t,
-                len,
-                dev_id,
-                std::ptr::null(),
-                0,
-            )
-        };
-
-        match status {
-            NIXL_CAPI_SUCCESS => Ok(()),
-            NIXL_CAPI_ERROR_INVALID_PARAM => Err(NixlError::InvalidParam),
-            _ => Err(NixlError::BackendError),
-        }
+        self.add_desc_with_meta(addr, len, dev_id, &[])
     }
 
     /// Add a descriptor with metadata
