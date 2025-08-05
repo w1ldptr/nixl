@@ -260,13 +260,16 @@ impl Agent {
     ) -> Result<QueryResponseList, NixlError> {
         let resp = QueryResponseList::new()?;
 
-        let status = unsafe {
-            nixl_capi_query_mem(
-                self.inner.write().unwrap().handle.as_ptr(),
-                descs.handle(),
-                resp.handle(),
-                opt_args.map_or(std::ptr::null_mut(), |args| args.inner.as_ptr()),
-            )
+        let status = {
+            let inner_guard = self.inner.write().unwrap();
+            unsafe {
+                nixl_capi_query_mem(
+                    inner_guard.handle.as_ptr(),
+                    descs.handle(),
+                    resp.handle(),
+                    opt_args.map_or(std::ptr::null_mut(), |args| args.inner.as_ptr()),
+                )
+            }
         };
 
         match status {
